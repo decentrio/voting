@@ -1,32 +1,43 @@
 
 use std::path::PathBuf;
 use anyhow::Result;
-use ark_ff::BigInteger256;
+use ark_ff::{BigInteger256, BitIteratorBE, Field};
 use clap::Subcommand;
 
-use crate::circuit::voter::Voter;
+use crate::circuit::{voter::Voter, ConstraintF};
 
 #[derive(Debug, Clone)]
 pub struct StoredKeypair (Vec<u8>);
 
 impl From<BigInteger256> for StoredKeypair {
     fn from(value: BigInteger256) -> Self {
-        let mut out = [0u8; 32];
-        for (i, limb) in value.0.iter().enumerate() {
-            out[i * 8..(i + 1) * 8].copy_from_slice(&limb.to_le_bytes());
-        }
-        Self(out.to_vec())
+        let base_prime_field = BitIteratorBE::new(ConstraintF::characteristic());
+        let mut bits: Vec<bool> = BitIteratorBE::new(value)
+            .zip(base_prime_field)
+            .skip_while(| (_, c) | !c)
+            .map(|(b, _)| b)
+            .collect();
+        bits.reverse();
+        let out: Vec<u8> = bits
+            .chunks(8)
+            .map(|chunk| {
+                let mut val = 0u8;
+                for (i, &bit) in chunk.iter().enumerate() {
+                    if bit {
+                        val += 1<< i;
+                    }
+                }
+                val
+            })
+            .collect();
+        Self(out)
     }
 }
 
 impl StoredKeypair {
     fn to_bigint256(self) -> BigInteger256 {
         let mut limbs = [0u64; 4];
-        for (i, limb) in limbs.iter_mut().enumerate() {
-            let start = i * 8;
-            let end = start + 8;
-            *limb = u64::from_le_bytes(self.0[start..end].try_into().unwrap());
-        }
+        // TODO: handle bigint256
         BigInteger256::new(limbs)
     }
 }

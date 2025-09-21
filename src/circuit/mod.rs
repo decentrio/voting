@@ -21,7 +21,7 @@ impl<S: SNARK<ConstraintF>> Proposal<S> {
             parameters,
         }
     }
-    pub fn new_process_id(&self, pid: u16) -> voter::ProcessId {
+    pub fn new_proposal_id(&self, pid: u16) -> voter::ProposalId {
         ConstraintF::from(pid)
     }
     pub fn new_voter<R: CryptoRng + RngCore>(&self, rng: &mut R) -> voter::Voter {
@@ -32,9 +32,10 @@ impl<S: SNARK<ConstraintF>> Proposal<S> {
     }
     pub fn new_tree(
         &self,
-        n_voters: usize,
+        // n_voters: usize,
+        height: usize
     ) -> Result<tree::Tree, tree::Error> {
-        let height = ark_std::log2(n_voters) as usize;
+        // let height = ark_std::log2(n_voters) as usize + 1;
         tree::Tree::blank(
             &self.parameters.leaf_crh_params,
             &self.parameters.two_to_one_crh_params,
@@ -44,7 +45,7 @@ impl<S: SNARK<ConstraintF>> Proposal<S> {
     pub fn new_circuit_instance(
         self,
         root: tree::Root,
-        process_id: voter::ProcessId,
+        proposal_id: voter::ProposalId,
         nullifier: voter::Nullifier,
         vote: voter::Vote,
         sk: voter::SecretKey,
@@ -56,7 +57,7 @@ impl<S: SNARK<ConstraintF>> Proposal<S> {
                 two_to_one_crh_params: self.parameters.two_to_one_crh_params,
             },
             root: Some(root),
-            process_id: Some(process_id),
+            proposal_id: Some(proposal_id),
             nullifier: Some(nullifier),
             vote: Some(vote),
             sk: Some(sk),

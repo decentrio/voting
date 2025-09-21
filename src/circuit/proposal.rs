@@ -62,7 +62,7 @@ pub struct ProposalCircuit {
 
     // public inputs
     pub root: Option<Root>,
-    pub process_id: Option<ProcessId>,
+    pub proposal_id: Option<ProposalId>,
     pub nullifier: Option<Nullifier>,
     pub vote: Option<Vote>,
 
@@ -75,7 +75,7 @@ impl ProposalCircuit {
     pub fn public_inputs(self) -> Vec<ConstraintF> {
         vec![
             self.root.unwrap(),
-            self.process_id.unwrap(),
+            self.proposal_id.unwrap(),
             self.nullifier.unwrap(),
             self.vote.unwrap(),
         ]
@@ -95,8 +95,8 @@ impl ConstraintSynthesizer<ConstraintF> for ProposalCircuit {
         let root = RootVar::new_input(ark_relations::ns!(cs, "Root"), || {
             self.root.ok_or(SynthesisError::AssignmentMissing)
         })?;
-        let process_id = ProcessIdVar::new_input(ark_relations::ns!(cs, "ProcessId"), || {
-            self.process_id.ok_or(SynthesisError::AssignmentMissing)
+        let proposal_id = ProposalIdVar::new_input(ark_relations::ns!(cs, "ProposalId"), || {
+            self.proposal_id.ok_or(SynthesisError::AssignmentMissing)
         })?;
         let nullifier = NullifierVar::new_input(ark_relations::ns!(cs, "Nullifier"), || {
             self.nullifier.ok_or(SynthesisError::AssignmentMissing)
@@ -121,7 +121,7 @@ impl ConstraintSynthesizer<ConstraintF> for ProposalCircuit {
         // check nullifier
         let mut hash_input = Vec::new();
         hash_input.extend_from_slice(&sk.to_bytes()?);
-        hash_input.extend_from_slice(&process_id.to_bytes()?);
+        hash_input.extend_from_slice(&proposal_id.to_bytes()?);
         let comp_nullifier = LeafHashGadget::evaluate(&parameters.leaf_crh_params, &hash_input)?;
         comp_nullifier.enforce_equal(&nullifier)?;
 
@@ -131,15 +131,16 @@ impl ConstraintSynthesizer<ConstraintF> for ProposalCircuit {
         let voting_key = LeafHashGadget::evaluate(&parameters.leaf_crh_params, &hash_input)?;
 
         // verify merkle proof
-        proof
+        let verify = proof
             .verify_membership(
                 &parameters.leaf_crh_params,
                 &parameters.two_to_one_crh_params,
                 &root,
                 &voting_key.to_bytes().unwrap().as_slice(),
             )?
-            .enforce_equal(&Boolean::TRUE)?;
+            ;
 
+        verify.enforce_equal(&Boolean::TRUE)?;
         Ok(())
     }
 }

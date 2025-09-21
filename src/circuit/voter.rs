@@ -12,8 +12,8 @@ use ark_std::UniformRand;
 use crate::circuit::tree::{LeafHash, LeafHashGadget};
 use ark_crypto_primitives::crh::{CRHGadget, CRH};
 
-pub type ProcessId = ConstraintF;
-pub type ProcessIdVar = FpVar<ConstraintF>;
+pub type ProposalId = ConstraintF;
+pub type ProposalIdVar = FpVar<ConstraintF>;
 
 pub type SecretKey = ConstraintF;
 pub type SecretKeyVar = FpVar<ConstraintF>;
@@ -50,10 +50,10 @@ impl Voter {
         }
     }
 
-    pub fn nullifier(&self, process_id: ProcessId) -> Nullifier {
+    pub fn nullifier(&self, proposal_id: ProposalId) -> Nullifier {
         let n: VotingKey = <LeafHash as CRH>::evaluate(
             &self.leaf_crh_params,
-            &ark_ff::to_bytes![self.sk, process_id].unwrap(),
+            &ark_ff::to_bytes![self.sk, proposal_id].unwrap(),
         )
         .unwrap();
         n
