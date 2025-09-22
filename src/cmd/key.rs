@@ -1,22 +1,23 @@
-
-use std::path::PathBuf;
 use anyhow::Result;
 use ark_ff::{BigInteger256, BitIteratorBE, Field};
 use clap::Subcommand;
+use std::path::PathBuf;
 
-use crate::circuit::{voter::Voter, ConstraintF};
+use crate::circuit::{ConstraintF, voter::Voter};
 
 #[derive(Debug, Clone)]
-pub struct StoredKeypair (Vec<u8>);
+pub struct StoredKeypair(pub Vec<u8>);
 
 impl From<BigInteger256> for StoredKeypair {
     fn from(value: BigInteger256) -> Self {
+        println!("value: {:?}", value);
         let base_prime_field = BitIteratorBE::new(ConstraintF::characteristic());
         let mut bits: Vec<bool> = BitIteratorBE::new(value)
             .zip(base_prime_field)
             .skip_while(| (_, c) | !c)
             .map(|(b, _)| b)
             .collect();
+        // println!("bits real: {:?}", bits);
         bits.reverse();
         let out: Vec<u8> = bits
             .chunks(8)
@@ -35,9 +36,24 @@ impl From<BigInteger256> for StoredKeypair {
 }
 
 impl StoredKeypair {
-    fn to_bigint256(self) -> BigInteger256 {
+    pub fn to_bigint256(self) -> BigInteger256 {
         let mut limbs = [0u64; 4];
-        // TODO: handle bigint256
+        let max_bits = 256;
+        for (byte_idx, &byte) in self.0.iter().enumerate() {
+            // for each bit inside the byte (LSB-first)
+            for bit_in_byte in 0..8 {
+                let bit_index = byte_idx * 8 + bit_in_byte;
+                if bit_index >= max_bits {
+                    break; // ignore anything beyond 256 bits
+                }
+
+                if ((byte >> bit_in_byte) & 1) == 1 {
+                    let limb_idx = bit_index / 64;
+                    let offset = bit_index % 64;
+                    limbs[limb_idx] |= 1u64 << offset;
+                }
+            }
+        }
         BigInteger256::new(limbs)
     }
 }
@@ -84,7 +100,6 @@ impl KeyStorage for RawKeyStorage {
         }
         Ok(keys)
     }
-    
 }
 
 #[derive(Clone, Subcommand)]
@@ -103,7 +118,7 @@ pub enum KeyCommands {
 pub struct KeyConfig {
     path: PathBuf,
     name: String,
-    voter: Voter
+    voter: Voter,
 }
 
 impl KeyCommands {
@@ -124,7 +139,6 @@ impl KeyCommands {
         }
     }
 }
-
 
 fn list<T: KeyStorage>(storage: T) -> Result<()> {
     let keys = storage.list_keys()?;

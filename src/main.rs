@@ -4,10 +4,10 @@ pub mod utils;
 
 use std::{fs::File, path::PathBuf};
 
-use crate::{circuit::{proposal::Parameters, ConstraintF, Proposal}, cmd::Commands};
+use crate::{circuit::{proposal::Parameters, ConstraintF, Proposal}, cmd::{key::StoredKeypair, Commands}};
 
 use ark_bls12_381::{Bls12_381, FrParameters};
-use ark_ff::{BigInteger, BitIteratorBE, Field, Fp256, PrimeField, ToBytes, ToConstraintField};
+use ark_ff::{BigInteger, BigInteger256, BitIteratorBE, Field, Fp256, PrimeField, ToBytes, ToConstraintField};
 use ark_groth16::Groth16;
 use ark_relations::r1cs::ConstraintLayer;
 use ark_serialize::{CanonicalSerialize};
@@ -65,20 +65,11 @@ async fn main() -> Result<(), reqwest::Error> {
 
     let prop = Proposal::<Groth16<Bls12_381>>::new(parameters.clone());
 
-
-    // let voters: Vec<Vec<u8>>  = data.map(|voter| {
-    //     let bytes = hex::decode(voter).unwrap();
-    //     bytes
-    // }).collect();
-
-    // let n_voters : usize = voters.len();
     let mut tree = prop.new_tree(8).unwrap();
     
-
     let voter = prop.new_voter(&mut rng);
-    
+    println!("voting key: {:?}", voter.voting_key.0);
     let base_prime_field = BitIteratorBE::new(ConstraintF::characteristic());
-
     let mut bits: Vec<bool> = BitIteratorBE::new(voter.voting_key.into_repr())
         .zip(base_prime_field)
         .skip_while(| (_, c) | !c)
@@ -98,11 +89,14 @@ async fn main() -> Result<(), reqwest::Error> {
         })
         .collect();
     let mut voting_key = [0u8; 32];
-    
     voting_key.copy_from_slice(&bytes);
+
+    println!("voting_key real: {:?}", bytes);
+    let converted_voting_key = StoredKeypair(voting_key.to_vec()).to_bigint256();
+    println!("converted voting key: {:?}", ConstraintF::from_repr(converted_voting_key).unwrap());
     
-    let encoded = hex::encode(voting_key);
-    data.push_str(&encoded);
+    // let encoded = hex::encode(voting_key);
+    // data.push_str(&encoded);
 
     voting_keys.push(voting_key.to_vec());
 
@@ -147,5 +141,3 @@ async fn main() -> Result<(), reqwest::Error> {
     // TODO: handle cli
     Ok(())
 }
-
-
