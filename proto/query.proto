@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package gov;
+
+// Service definition
+service Query {
+  rpc VoteResult (VoteResultRequest) returns (VoteResultResponse);
+  rpc Commitments (CommitmentsRequest) returns (CommitmentsResponse);
+}
+
+// Messages
+message VoteResultRequest {
+    uint64 proposal_id = 1;
+}
+
+message VoteResultResponse {
+    uint64 proposal_id = 1;
+    VoteResult result = 2;
+    Tally tally = 3;
+}
+
+message Tally {
+    uint64 yes = 1;
+    uint64 no = 2;
+}
+
+enum VoteResult {
+    VOTE_STATUS_PASSED = 0;
+    VOTE_STATUS_FAILED = 1;
+    VOTE_STATUS_PENDING = 2;
+}
+
+message CommitmentsRequest {
+    uint64 proposal_id = 1;
+    uint64 group_id = 2;
+}
+
+message CommitmentsResponse {
+    repeated string commitments = 1;
+}

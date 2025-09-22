@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package gov;
+
+// Service definition
+service Governance {
+  rpc CreateGroup (CreateGroupRequest) returns (CreateGroupResponse);
+  rpc SubmitProposal (ProposalRequest) returns (ProposalResponse);
+  rpc SubmitVote (VoteRequest) returns (VoteResponse);
+}
+
+// Messages
+message CreateGroupRequest {
+  string adming = 1;
+  repeated string members = 2;
+}
+
+message CreateGroupResponse {
+  uint64 group_id = 1;
+}
+
+message ProposalRequest {
+  uint64 group_id = 1;
+  string title = 2;
+  string description = 3;
+}
+
+message ProposalResponse {
+  uint64 proposal_id = 1;
+}
+
+// Messages
+message VoteRequest {
+  bytes ciphertext = 1;
+}
+
+message VoteResponse {
+ 
+}
