@@ -1,0 +1,13 @@
+{
+  "name": "voting",
+  "packageManager": "yarn@1.22.22",
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "dotenv": "^17.2.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "zkverifyjs": "^1.0.0"
+  }
+}
