@@ -127,10 +127,14 @@ async fn main() -> Result<(), reqwest::Error> {
             Proposal::<Groth16<Bls12_381>>::circuit_setup(&mut rng, circuit.clone()).unwrap();
     
     let vk = vk;
-    let mut writer = File::create("./data/vkey.json").unwrap();
-
+    
     let public_inputs = circuit.clone().public_inputs();
+    let public_inputs_json = utils::public_inputs_to_snarkjs(&public_inputs);
+    let mut writer = File::create("./data/public_inputs.json").unwrap();
+    serde_json::to_writer_pretty(writer, &public_inputs_json).unwrap();
+    
     let vk_json = utils::vk_to_snarkjs(&vk, public_inputs.len()).unwrap();
+    writer = File::create("./data/vkey.json").unwrap();
     serde_json::to_writer_pretty(writer, &vk_json).unwrap();
 
     let proof = Proposal::<Groth16<Bls12_381>>::prove(&mut rng, pk, circuit).unwrap();
@@ -139,6 +143,7 @@ async fn main() -> Result<(), reqwest::Error> {
     let proof_json = utils::proof_to_snarkjs(&proof);
     serde_json::to_writer_pretty(writer, &proof_json).unwrap();
 
+    
     // TODO: handle cli
     Ok(())
 }

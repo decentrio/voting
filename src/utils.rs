@@ -1,6 +1,6 @@
-use ark_bls12_381::Parameters;
+use ark_bls12_381::{FrParameters, Parameters};
 use ark_ec::{bls12::Bls12, PairingEngine};
-use ark_ff::{PrimeField};
+use ark_ff::{Fp256, PrimeField};
 use ark_groth16::{Proof, VerifyingKey};
 use ark_serialize::CanonicalSerialize;
 use serde::Serialize;
@@ -140,4 +140,8 @@ pub fn vk_to_snarkjs(vk: &VerifyingKey<Bls12<Parameters>>, n_public: usize) -> R
         vk_alphabeta_12: alphabeta_serialized,
         IC: ic,
     })
+}
+
+pub fn public_inputs_to_snarkjs(public_inputs:  &Vec<Fp256<FrParameters>>) -> Vec<String> {
+    public_inputs.iter().map(|f| f.into_repr().to_string()).collect()
 }
