@@ -1,13 +1,12 @@
-
-use std::path::PathBuf;
 use anyhow::Result;
 use ark_ff::{BigInteger256, BitIteratorBE, Field};
 use clap::Subcommand;
+use std::path::PathBuf;
 
-use crate::circuit::{voter::Voter, ConstraintF};
+use crate::circuit::{ConstraintF, voter::Voter};
 
 #[derive(Debug, Clone)]
-pub struct StoredKeypair (Vec<u8>);
+pub struct StoredKeypair(pub Vec<u8>);
 
 impl From<BigInteger256> for StoredKeypair {
     fn from(value: BigInteger256) -> Self {
@@ -24,7 +23,7 @@ impl From<BigInteger256> for StoredKeypair {
                 let mut val = 0u8;
                 for (i, &bit) in chunk.iter().enumerate() {
                     if bit {
-                        val += 1<< i;
+                        val += 1 << i;
                     }
                 }
                 val
@@ -35,9 +34,8 @@ impl From<BigInteger256> for StoredKeypair {
 }
 
 impl StoredKeypair {
-    fn to_bigint256(self) -> BigInteger256 {
+    pub fn to_bigint256(self) -> BigInteger256 {
         let mut limbs = [0u64; 4];
-        // TODO: handle bigint256
         BigInteger256::new(limbs)
     }
 }
@@ -84,26 +82,24 @@ impl KeyStorage for RawKeyStorage {
         }
         Ok(keys)
     }
-    
 }
 
 #[derive(Clone, Subcommand)]
 pub enum KeyCommands {
     Create {
         #[arg(short, long)]
-        name: Option<String>,
+        name: String,
     },
     Show {
         #[arg(short, long)]
-        name: Option<String>,
+        name: String,
     },
     List,
 }
 
 pub struct KeyConfig {
-    path: PathBuf,
-    name: String,
-    voter: Voter
+    pub path: PathBuf,
+    pub voter: Option<Voter>,
 }
 
 impl KeyCommands {
@@ -112,19 +108,15 @@ impl KeyCommands {
 
         match command {
             KeyCommands::Create { name } => {
-                let key_name = name.unwrap_or_else(|| config.name);
-
-                create(key_storage, key_name, config.voter)
+                create(key_storage, name, config.voter.unwrap())
             }
             KeyCommands::Show { name } => {
-                let key_name = name.unwrap_or_else(|| config.name);
-                show(key_storage, key_name)
+                show(key_storage, name)
             }
             KeyCommands::List => list(key_storage),
         }
     }
 }
-
 
 fn list<T: KeyStorage>(storage: T) -> Result<()> {
     let keys = storage.list_keys()?;

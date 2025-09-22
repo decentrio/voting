@@ -1,9 +1,12 @@
 use clap::{Subcommand};
 
-use crate::{cmd::key::{KeyCommands}};
+use crate::{cmd::{
+    key::{KeyCommands},
+    vote::{VoteCommands}}
+};
 
 pub mod key;
-
+pub mod vote;
 
 #[derive(Subcommand)]
 pub(crate) enum Commands {
@@ -11,5 +14,8 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         command: KeyCommands,
     },
-
+    Vote {
+        #[command(subcommand)]
+        command: VoteCommands,
+    }
 }
