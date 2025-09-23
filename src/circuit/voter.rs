@@ -1,4 +1,6 @@
 use crate::circuit::ConstraintF;
+use crate::cmd::key::StoredKeypair;
+use ark_ff::PrimeField;
 use ark_r1cs_std::prelude::*;
 use ark_relations::r1cs::{Namespace, SynthesisError};
 use std::borrow::Borrow;
@@ -38,6 +40,23 @@ impl Voter {
         rng: &mut R,
     ) -> Voter {
         let sk: SecretKey = ConstraintF::rand(rng);
+
+        let voting_key: VotingKey =
+            <LeafHash as CRH>::evaluate(&leaf_crh_params.clone(), &ark_ff::to_bytes![sk].unwrap())
+                .unwrap();
+
+        Voter {
+            leaf_crh_params: leaf_crh_params.clone(),
+            sk,
+            voting_key,
+        }
+    }
+
+    pub fn from_keypair(
+        leaf_crh_params: &<LeafHash as CRH>::Parameters,
+        keypair: StoredKeypair,
+    ) -> Voter {
+        let sk: SecretKey = ConstraintF::from_repr(keypair.to_bigint256()).unwrap();
 
         let voting_key: VotingKey =
             <LeafHash as CRH>::evaluate(&leaf_crh_params.clone(), &ark_ff::to_bytes![sk].unwrap())

@@ -6,9 +6,6 @@ use clap::Subcommand;
 pub enum VoteCommands {
     Vote{
         #[arg(short, long)]
-        key_path: Option<PathBuf>,
-        
-        #[arg(short, long)]
         proposal_id: u16,
 
         #[arg(short, long)]
