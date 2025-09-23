@@ -1,10 +1,26 @@
-import { Bytes, SparseMerkleTree } from "../storage/merkle";
+import { Bytes, fromHex, SparseMerkleTree } from "../storage/merkle";
+
+export enum VoteResult {
+    VOTE_STATUS_PASSED = 0,
+    VOTE_STATUS_FAILED = 1,
+    VOTE_STATUS_PENDING = 2,
+}
+
+export enum VoteOption {
+    YES = 0,
+    NO = 1,
+}
 
 export type Proposal = {
     id: number;
     title: string;
     description: string;
-    commitments: SparseMerkleTree;
+    nullifiers: Map<Uint8Array, boolean>,
+    tally: {
+        yes: number,
+        no: number,
+    }
+    endTime: Date,
 }
 
 export type GroupError = {
@@ -14,51 +30,70 @@ export type GroupError = {
 export class Group {
     admin: string;
     proposals: Map<number, Proposal>;
-    members: Map<string, boolean>;
-    
-    constructor(admin: string, members: Map<string, boolean>) {
+    members: SparseMerkleTree;
+    threshold: number;
+
+    constructor(admin: string, members: string[], threshold: number) {
         this.proposals = new Map<number, Proposal>
-        this.members = members
+        this.members = new SparseMerkleTree();
+        members.forEach((v, _) => {
+            this.members.insertLeaf(fromHex(v))
+        })
         this.admin = admin
+        this.threshold = threshold || Math.ceil(members.length * 2 / 3) // default 2/3 members
     }
 
     addMember(addr: string) {
-        if (this.members?.has(addr) && this.members?.get(addr)) {
+        if (this.members?.getNextFree() >= this.members?.capacity) {
+            throw new Error("reach cap members size")
+        }
+        const addrBytes = fromHex(addr);
+        const { found } = this.members?.hasLeaf(addrBytes)
+        if (found) {
             throw new Error("member already registered")
         }
 
-        this.members?.set(addr, true)
+        this.members?.insertLeaf(addrBytes)
     }
 
     removeMember(addr: string) {
-        if (!this.members?.has(addr) || !this.members?.get(addr)) {
+        const addrBytes = fromHex(addr);
+        const { found, index } = this.members?.hasLeaf(addrBytes)
+        if (!found) {
             throw new Error("member not registered yet")
         }
 
-        this.members?.delete(addr)
+        this.members?.deleteLeaf(index)
     }
 
-    submitProposal(title: string, description: string): number {
+    submitProposal(title: string, description: string, endTime: Date): number {
         // TODO: validate proposal
         let currentId = this.proposals ? this.proposals.size : 0
         const proposal: Proposal = {
             id: currentId,
             title,
             description,
-            commitments: new SparseMerkleTree({
-                depth: Math.ceil(Math.log2(this.members.size))
-            })
+            nullifiers: new Map<Uint8Array, boolean>(),
+            tally: {
+                yes: 0,
+                no: 0,
+            },
+            endTime: endTime || new Date(Date.now() + 2 * 24 * 60 * 60 * 1000) //default 2 days periods
         }
         this.proposals?.set(currentId, proposal)
         return currentId;
     }
 
-    submitVote(proposalId: number, ciphertext: Bytes) {
-        let proposal = this.proposals?.get(proposalId) 
+    submitVote(proposalId: number, option: VoteOption, nullifier: Bytes) {
+        let proposal = this.proposals?.get(proposalId)
         if (!proposal) {
             throw new Error("proposal id not found")
         }
-        proposal.commitments.insertLeaf(ciphertext)
+        if (proposal.nullifiers.has(nullifier)) {
+            throw new Error("member already voted")
+        }
+        proposal.nullifiers.set(nullifier, true)
+        option == VoteOption.YES ? proposal.tally.yes += 1 : proposal.tally.no += 1
 
         this.proposals?.set(proposalId, proposal)
     }

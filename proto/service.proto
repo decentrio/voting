@@ -9,6 +9,11 @@ service Governance {
   rpc SubmitVote (VoteRequest) returns (VoteResponse);
 }
 
+enum VoteOption {
+    YES = 0;
+    NO = 1;
+}
+
 // Messages
 message CreateGroupRequest {
   string adming = 1;
@@ -31,7 +36,10 @@ message ProposalResponse {
 
 // Messages
 message VoteRequest {
-  bytes ciphertext = 1;
+  uint64 group_id = 1;
+  uint64 proposal_id = 2;
+  VoteOption vote = 3;
+  bytes nullifier = 4;
 }
 
 message VoteResponse {

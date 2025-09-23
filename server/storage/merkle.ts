@@ -55,6 +55,10 @@ export class SparseMerkleTree {
 
     /* ---------- Public API ---------- */
 
+    getNextFree(): number {
+        return this.nextFree
+    }
+
     /** Append a leaf at the next empty slot. Returns the index used. */
     insertLeaf(value: Bytes): number {
         if (toHex(value) === toHex(this.EMPTY)) {
@@ -154,7 +158,47 @@ export class SparseMerkleTree {
         return toHex(acc) === toHex(root);
     }
 
+    /** Returns true if any leaf equals `hash` (and isn’t EMPTY). */
+    hasLeaf(hash: Bytes): { found: boolean, index: number } {
+        if (SparseMerkleTree.eq(hash, this.EMPTY)) return {
+            found: false,
+            index: 0,
+        };
+        for (let i = 0; i < this.capacity; i++) {
+            const h = this.leaves[i];
+            if (SparseMerkleTree.eq(h, hash)) return {
+                found: true,
+                index: i,
+            };
+        }
+        return {
+            found: false,
+            index: 0,
+        };
+    }
+
+    deleteLeaf(index: number) {
+        // Remove that index and shift everything left
+        this.leaves.splice(index, 1);
+
+        // Push EMPTY at the end to maintain fixed capacity
+        this.leaves.push(this.EMPTY);
+
+        // Update nextFree: the first EMPTY index from the left
+        this.nextFree = this.leaves.findIndex(
+            (h) => SparseMerkleTree.eq(h, this.EMPTY)
+        );
+    }
+
+
     /* ---------- Internals ---------- */
+
+    private static eq(a: Bytes, b: Bytes): boolean {
+        if (a.length !== b.length) return false;
+        let acc = 0;
+        for (let i = 0; i < a.length; i++) acc |= a[i] ^ b[i];
+        return acc === 0;
+    }
 
     private assertIndex(index: number) {
         if (!Number.isInteger(index) || index < 0 || index >= this.capacity) {
