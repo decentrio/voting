@@ -31,7 +31,7 @@ export class Service {
     call: grpc.ServerUnaryCall<{ admin: string, members: string[] }, any>,
     callback: grpc.sendUnaryData<{ group_id: number }>
   ) {
-    const currentGroupId = this.memDb.groups.size;
+    const currentGroupId = this.memDb.groups?.size || 0;
     let members: Map<string, boolean> = new Map<string, boolean>();
     call.request.members.forEach((addr) => {
       members.set(addr, true)
