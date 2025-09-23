@@ -30,12 +30,12 @@ const queryProto = grpc.loadPackageDefinition(queryPackageDef).gov as any;
 function main() {
   const server = new grpc.Server();
   const serviceHandler = new Service();
-  server.addService(servicesProto.service, {
+  server.addService(servicesProto.Governance.service, {
     SubmitVote: serviceHandler.submitVote,
     SubmitProposal: serviceHandler.submitProposal,
     CreateGroup: serviceHandler.createGroup,
   });
-  server.addService(queryProto.service, {
+  server.addService(queryProto.Query.service, {
     Commitments: serviceHandler.commitments
   });
 
