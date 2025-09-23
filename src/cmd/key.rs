@@ -1,22 +1,42 @@
-
-use std::path::PathBuf;
 use anyhow::Result;
 use ark_ff::{BigInteger256, BitIteratorBE, Field};
 use clap::Subcommand;
+use std::path::PathBuf;
 
-use crate::circuit::{voter::Voter, ConstraintF};
+use crate::circuit::{ConstraintF, voter::Voter};
 
-#[derive(Debug, Clone)]
-pub struct StoredKeypair (Vec<u8>);
+#[derive(Debug, Default, Clone)]
+pub struct StoredKeypair(pub Vec<u8>);
 
 impl From<BigInteger256> for StoredKeypair {
     fn from(value: BigInteger256) -> Self {
         let base_prime_field = BitIteratorBE::new(ConstraintF::characteristic());
         let mut bits: Vec<bool> = BitIteratorBE::new(value)
             .zip(base_prime_field)
-            .skip_while(| (_, c) | !c)
+            .skip_while(|(_, c)| !c)
             .map(|(b, _)| b)
             .collect();
+        println!("bits: {:?}", bits);
+        bits.reverse();
+
+        let field = ConstraintF::characteristic();
+        let mut n: usize = 4 * 64;
+        let mut bits = vec![];
+        let mut started = false;
+        while n > 0 {
+            n -= 1;
+            let part = n / 64;
+            let bit = n - (64 * part);
+            if !started {
+                if (field[part] & (1 << bit) > 0) {
+                    started = true;
+                    bits.push(value.0[part] & (1 << bit) > 0);
+                }
+            } else {
+                bits.push(value.0[part] & (1 << bit) > 0);
+            }
+        }
+
         bits.reverse();
         let out: Vec<u8> = bits
             .chunks(8)
@@ -24,7 +44,7 @@ impl From<BigInteger256> for StoredKeypair {
                 let mut val = 0u8;
                 for (i, &bit) in chunk.iter().enumerate() {
                     if bit {
-                        val += 1<< i;
+                        val += 1 << i;
                     }
                 }
                 val
@@ -35,9 +55,24 @@ impl From<BigInteger256> for StoredKeypair {
 }
 
 impl StoredKeypair {
-    fn to_bigint256(self) -> BigInteger256 {
+    pub fn to_bigint256(self) -> BigInteger256 {
         let mut limbs = [0u64; 4];
-        // TODO: handle bigint256
+        let max_bits = 256;
+        for (byte_idx, &byte) in self.0.iter().enumerate() {
+            // for each bit inside the byte (LSB-first)
+            for bit_in_byte in 0..8 {
+                let bit_index = byte_idx * 8 + bit_in_byte;
+                if bit_index >= max_bits {
+                    break; // ignore anything beyond 256 bits
+                }
+
+                if ((byte >> bit_in_byte) & 1) == 1 {
+                    let limb_idx = bit_index / 64;
+                    let offset = bit_index % 64;
+                    limbs[limb_idx] |= 1u64 << offset;
+                }
+            }
+        }
         BigInteger256::new(limbs)
     }
 }
@@ -84,26 +119,19 @@ impl KeyStorage for RawKeyStorage {
         }
         Ok(keys)
     }
-    
 }
 
 #[derive(Clone, Subcommand)]
 pub enum KeyCommands {
-    Create {
-        #[arg(short, long)]
-        name: Option<String>,
-    },
-    Show {
-        #[arg(short, long)]
-        name: Option<String>,
-    },
+    Create,
+    Show,
     List,
 }
 
 pub struct KeyConfig {
-    path: PathBuf,
-    name: String,
-    voter: Voter
+    pub path: PathBuf,
+    pub name: Option<String>,
+    pub voter: Option<Voter>,
 }
 
 impl KeyCommands {
@@ -111,20 +139,16 @@ impl KeyCommands {
         let key_storage = RawKeyStorage::new(config.path);
 
         match command {
-            KeyCommands::Create { name } => {
-                let key_name = name.unwrap_or_else(|| config.name);
-
-                create(key_storage, key_name, config.voter)
+            KeyCommands::Create => {
+                create(key_storage, config.name.unwrap(), config.voter.unwrap())
             }
-            KeyCommands::Show { name } => {
-                let key_name = name.unwrap_or_else(|| config.name);
-                show(key_storage, key_name)
+            KeyCommands::Show => {
+                show(key_storage, config.name.unwrap())
             }
             KeyCommands::List => list(key_storage),
         }
     }
 }
-
 
 fn list<T: KeyStorage>(storage: T) -> Result<()> {
     let keys = storage.list_keys()?;
