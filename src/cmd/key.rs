@@ -1,11 +1,11 @@
 use anyhow::Result;
-use ark_ff::{BigInteger256, BitIteratorBE, Field};
+use ark_ff::{BigInteger256, BitIteratorBE, Field, PrimeField};
 use clap::Subcommand;
 use std::path::PathBuf;
 
-use crate::circuit::{ConstraintF, voter::Voter};
+use crate::circuit::{proposal::Parameters, voter::Voter, ConstraintF};
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct StoredKeypair(pub Vec<u8>);
 
 impl From<BigInteger256> for StoredKeypair {
@@ -16,28 +16,8 @@ impl From<BigInteger256> for StoredKeypair {
             .skip_while(|(_, c)| !c)
             .map(|(b, _)| b)
             .collect();
-        println!("bits: {:?}", bits);
         bits.reverse();
 
-        let field = ConstraintF::characteristic();
-        let mut n: usize = 4 * 64;
-        let mut bits = vec![];
-        let mut started = false;
-        while n > 0 {
-            n -= 1;
-            let part = n / 64;
-            let bit = n - (64 * part);
-            if !started {
-                if (field[part] & (1 << bit) > 0) {
-                    started = true;
-                    bits.push(value.0[part] & (1 << bit) > 0);
-                }
-            } else {
-                bits.push(value.0[part] & (1 << bit) > 0);
-            }
-        }
-
-        bits.reverse();
         let out: Vec<u8> = bits
             .chunks(8)
             .map(|chunk| {
@@ -123,7 +103,10 @@ impl KeyStorage for RawKeyStorage {
 
 #[derive(Clone, Subcommand)]
 pub enum KeyCommands {
-    Create,
+    Create { 
+        #[arg(short, long)]
+        name: String,
+    },
     Show,
     List,
 }
@@ -132,6 +115,7 @@ pub struct KeyConfig {
     pub path: PathBuf,
     pub name: Option<String>,
     pub voter: Option<Voter>,
+    pub parameter: Parameters,
 }
 
 impl KeyCommands {
@@ -139,11 +123,11 @@ impl KeyCommands {
         let key_storage = RawKeyStorage::new(config.path);
 
         match command {
-            KeyCommands::Create => {
-                create(key_storage, config.name.unwrap(), config.voter.unwrap())
+            KeyCommands::Create{ name } => {
+                create(key_storage, name, config.voter.unwrap())
             }
             KeyCommands::Show => {
-                show(key_storage, config.name.unwrap())
+                show(key_storage, config.name.unwrap(), config.parameter)
             }
             KeyCommands::List => list(key_storage),
         }
@@ -165,8 +149,10 @@ fn create<T: KeyStorage>(storage: T, name: String, voter: Voter) -> Result<()> {
     Ok(())
 }
 
-fn show<T: KeyStorage>(storage: T, name: String) -> Result<()> {
+fn show<T: KeyStorage>(storage: T, name: String, params: Parameters) -> Result<()> {
     let keypair = storage.load_keypair(&name)?;
-    println!("Loaded key {}: {:?}", name, keypair);
+    let voter = Voter::from_keypair(&params.leaf_crh_params, keypair);
+    let pubkey = StoredKeypair::from(voter.voting_key.into_repr());
+    println!("Loaded key {}: {:?}", name, hex::encode(pubkey.0));
     Ok(())
 }

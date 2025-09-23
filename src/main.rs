@@ -67,8 +67,8 @@ async fn main() -> Result<(), reqwest::Error> {
         let mut key_path = cli.config.clone().unwrap();
         let name = cli.name.clone().unwrap();
         key_path.push(name);
-        let mut keypair = StoredKeypair::default();
-        std::fs::write(key_path, &mut keypair.0).unwrap();
+        
+        let keypair = StoredKeypair(std::fs::read(key_path).unwrap());
         Voter::from_keypair(&parameters.leaf_crh_params, keypair)
     };
     match cli.command {
@@ -76,16 +76,18 @@ async fn main() -> Result<(), reqwest::Error> {
             let config = KeyConfig{
                 path: cli.config.unwrap(),
                 voter: Some(voter),
-                name: cli.name
+                name: cli.name,
+                parameter: parameters
             };
             KeyCommands::handle_command(command, config).unwrap();
         },
         Commands::Vote { command } => {
             match command {
                 VoteCommands::Vote { proposal_id, voter_index, vote_data } => {
-                    let url = cli.rpc_url.unwrap();
-                    let response = reqwest::get(url).await?.text().await?;
-                    let data = response.split(",");
+                    // let url = cli.rpc_url.unwrap();
+                    // let response = reqwest::get(url).await?.text().await?;
+                    let data = String::from("3bcc746344f900c1d08bb57f707010709a1ae626ec7d11391e66a338de51bf62,55af9fb47e387e6247d8d644f9fe4f84d6c61ead034eed1021c8dd370ad2a9af,12f0010135255cb45aebc559c3d9a486d8163fcec5d5b741b119ace4bac3a6ae,c5751f51351f4a3281e54f1235de8f55ff0193a64cf91ceab5288b337ada5840,32f3205594b1bd3e53514843378a5eb6934de4052ac09ab327255be5d5fdb319,aa6b2455a1626b6368044cc035c6ea2e39ce4701bc72cc4fbe2c548bac0652da,e66a52f5c542bfdab783483a556f657df2f2dacafeca87a763eb42a15fe14ceb,38448a379a9f8ed58e48e9799e03045433120b816a50b93409dd3368dcf1cb2c,1bd2e13b237f2381682a2f43a3e2551b194a639e42ffff1c1462c6a53605be4c");
+                    let data =data.split(",");
 
                     let voters: Vec<Vec<u8>>  = data.map(|voter| {
                         let bytes = hex::decode(voter).unwrap();
