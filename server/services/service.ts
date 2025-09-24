@@ -115,6 +115,7 @@ export class Service {
     )
 
     const key = JSON.parse(readFileSync(`${__dirname}/../../data/vkey.json`).toString());
+    console.log(key)
     const proof = JSON.parse(readFileSync(`${__dirname}/../../data/proof.json`).toString());
     const publicInputs = JSON.parse(readFileSync(`${__dirname}/../../data/public_inputs.json`).toString());
     const session = await zkVerifySession.start().Volta().withAccount(seedPhrase);
@@ -155,12 +156,14 @@ export class Service {
         callback: async (eventData: any) => {
           console.log("New aggregation receipt:", eventData);
           if (aggregationId == parseInt(eventData.data.aggregationId.replace(/,/g, ''))) {
-            let statementpath = await session.getAggregateStatementPath(
-              eventData.blockHash,
-              parseInt(eventData.data.domainId),
-              parseInt(eventData.data.aggregationId.replace(/,/g, '')),
-              statement
-            );
+            let statementpath = await retryUntilOk(async () => {
+              return session.getAggregateStatementPath(
+                eventData.blockHash,
+                parseInt(eventData.data.domainId),
+                parseInt(eventData.data.aggregationId.replace(/,/g, '')),
+                statement
+              );
+            });
             console.log("Statement path:", statementpath);
             const statementproof = {
               ...statementpath,
@@ -237,5 +240,17 @@ function convert(obj: any): any {
 }
 
 function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function retryUntilOk<T>(fn: () => Promise<T>, delayMs = 1000): Promise<T> {
+  while (true) {
+    try {
+      return await fn(); // if ok, return result
+    } catch (err) {
+      console.error("Error:", err);
+      console.log(`Retrying in ${delayMs / 1000}s...`);
+      await sleep(delayMs);
+    }
+  }
 }

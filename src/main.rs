@@ -2,14 +2,15 @@ pub mod circuit;
 pub mod cmd;
 pub mod utils;
 
-use std::{env, fs::File, path::PathBuf, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::{env, fs::File, io::{Read, Write}, path::PathBuf, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use crate::{circuit::{proposal::Parameters, voter::Voter, Proposal}, cmd::{key::{KeyCommands, KeyConfig, StoredKeypair}, vote::VoteCommands, Commands}};
 
 use ark_bls12_381::{Bls12_381};
-use ark_ff::PrimeField;
-use ark_groth16::Groth16;
+use ark_ff::{PrimeField, ToBytes};
+use ark_groth16::{Groth16, VerifyingKey, ProvingKey};
 use ark_relations::r1cs::ConstraintLayer;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::rand::{rngs::StdRng, SeedableRng};
 use clap::Parser;
 use rand::{seq::SliceRandom, Rng};
@@ -166,9 +167,11 @@ async fn main() -> Result<(), reqwest::Error> {
                 with description containing the 2 options:
                 {"title":"....", "description":"...."}
             "#;
-
             
-            // while true {
+            let mut pk_vk_saved= false;
+            let mut pkey : Option<ProvingKey<Bls12_381>> = None;
+            let mut vkey : Option<VerifyingKey<Bls12_381>> = None;
+            while true {
                 let prop = Proposal::<Groth16<Bls12_381>>::new(parameters.clone());
                 let admin = prop.new_voter(&mut rng);
                 let admin_pk = String::from("0x") + &hex::encode(StoredKeypair::from(admin.voting_key.into_repr()).0);
@@ -208,23 +211,27 @@ async fn main() -> Result<(), reqwest::Error> {
 
 
                 for _ in 0..n_proposals {
-                    let gpt_request = CreateChatCompletionRequestArgs::default()
-                        .model("gpt-4o-mini")
-                        .messages([ChatCompletionRequestMessage::User(
-                            ChatCompletionRequestUserMessage{
-                                content: ChatCompletionRequestUserMessageContent::Text(String::from(prompt)),
-                                name: None
-                            }
-                        )])
-                        .build().unwrap();
-                    let response = gpt_client.chat().create(gpt_request).await.unwrap();
-                    let reply = response
-                        .choices
-                        .get(0)
-                        .and_then(|c| c.message.content.as_ref())
-                        .unwrap();
-                    println!("gpt reply: {}", reply.clone());
-                    let proposal: GPTProposal = serde_json::from_str(reply).unwrap();
+                    
+                    let mut reply =String::from("*");
+                    while serde_json::from_str::<GPTProposal>(&reply).is_err() {
+                        let gpt_request = CreateChatCompletionRequestArgs::default()
+                            .model("gpt-4o-mini")
+                            .messages([ChatCompletionRequestMessage::User(
+                                ChatCompletionRequestUserMessage{
+                                    content: ChatCompletionRequestUserMessageContent::Text(String::from(prompt)),
+                                    name: None
+                                }
+                            )])
+                            .build().unwrap();
+                        let response = gpt_client.chat().create(gpt_request).await.unwrap();
+                        reply = response
+                            .choices
+                            .get(0)
+                            .and_then(|c| c.message.content.as_ref())
+                            .unwrap().clone();
+                        println!("gpt reply: {}", reply.clone());
+                    }
+                    let proposal: GPTProposal = serde_json::from_str(&reply).unwrap();
 
                     let end_time = SystemTime::now().checked_add(Duration::from_secs(3600)).unwrap().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
                     println!("requesting create proposal");
@@ -252,22 +259,33 @@ async fn main() -> Result<(), reqwest::Error> {
 
                         let prop = Proposal::<Groth16<Bls12_381>>::new(parameters.clone());
                         let circuit = prop.new_circuit_instance(root, proposal_id, nullifier, vote, voter.sk, proofs[idx].clone());
-                        let (pk, vk) =
-                                Proposal::<Groth16<Bls12_381>>::circuit_setup(&mut rng, circuit.clone()).unwrap();
-                        
-                        let vk = vk;
                         
                         let public_inputs = circuit.clone().public_inputs();
                         println!("public_inputs: {:?}", public_inputs);
                         let public_inputs_json = utils::public_inputs_to_snarkjs(&public_inputs);
+
                         let mut writer = File::create("./data/public_inputs.json").unwrap();
                         serde_json::to_writer_pretty(writer, &public_inputs_json).unwrap();
-                        
-                        let vk_json = utils::vk_to_snarkjs(&vk, public_inputs.len()).unwrap();
-                        writer = File::create("./data/vkey.json").unwrap();
-                        serde_json::to_writer_pretty(writer, &vk_json).unwrap();
+
+                        let (pk, vk)  = if !pk_vk_saved {
+                             let (pk, vk) =
+                                    Proposal::<Groth16<Bls12_381>>::circuit_setup(&mut rng, circuit.clone()).unwrap();
+                            
+                            let vk_json = utils::vk_to_snarkjs(&vk, public_inputs.len()).unwrap();
+                            let mut writer = File::create("./data/vkey.json").unwrap();
+                            serde_json::to_writer_pretty(writer, &vk_json).unwrap();
+
+                            pkey = Some(pk);
+                            vkey = Some(vk);
+                            pk_vk_saved = true;
+                            (pkey.clone().unwrap(), vkey.clone().unwrap())
+                        } else {
+                            (pkey.clone().unwrap(), vkey.clone().unwrap())
+                        };
 
                         let proof = Proposal::<Groth16<Bls12_381>>::prove(&mut rng, pk, circuit).unwrap();
+
+                        assert!(Proposal::<Groth16<Bls12_381>>::verify(vk, proof.clone(), public_inputs).unwrap());
 
                         writer = File::create("./data/proof.json").unwrap();
                         let proof_json = utils::proof_to_snarkjs(&proof);
@@ -289,7 +307,7 @@ async fn main() -> Result<(), reqwest::Error> {
                         println!("Vote response {:?}", response);
                     }
                 }
-            // }
+            }
         }
     }
     Ok(())
