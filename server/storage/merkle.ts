@@ -65,7 +65,7 @@ export class SparseMerkleTree {
             throw new Error("insertLeaf: cannot insert EMPTY as a leaf");
         }
         let i = this.nextFree;
-        while (i < this.capacity && toHex(this.leaves[i]) !== toHex(this.EMPTY)) i++;
+        while (i < this.capacity && this.leaves[i] !== undefined) i++;
         if (i >= this.capacity) throw new Error("insertLeaf: tree is full");
 
         this.leaves[i] = value;

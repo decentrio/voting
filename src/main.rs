@@ -12,7 +12,7 @@ use ark_groth16::Groth16;
 use ark_relations::r1cs::ConstraintLayer;
 use ark_std::rand::{rngs::StdRng, SeedableRng};
 use clap::Parser;
-use rand::Rng;
+use rand::{seq::SliceRandom, Rng};
 use reqwest;
 use tracing_subscriber::{layer::SubscriberExt, Registry};
 
@@ -171,7 +171,7 @@ async fn main() -> Result<(), reqwest::Error> {
             // while true {
                 let prop = Proposal::<Groth16<Bls12_381>>::new(parameters.clone());
                 let admin = prop.new_voter(&mut rng);
-                let admin_pk = hex::encode(StoredKeypair::from(admin.voting_key.into_repr()).0);
+                let admin_pk = String::from("0x") + &hex::encode(StoredKeypair::from(admin.voting_key.into_repr()).0);
 
                 let n_members: usize = rng.gen_range(5..100);
                 let n_proposals: usize = rng.gen_range(1..10);
@@ -189,7 +189,8 @@ async fn main() -> Result<(), reqwest::Error> {
                     tree.update(i, &pk).unwrap();
                     
                 }
-
+                let mut indices: Vec<usize> = (0..n_members).collect();
+                indices.shuffle(&mut rng);
                 for i in 0..n_members {
                     proofs.push(tree.generate_proof(i).unwrap());
                 }
@@ -198,7 +199,7 @@ async fn main() -> Result<(), reqwest::Error> {
                 let request = tonic::Request::new(CreateGroupRequest {
                     admin: admin_pk,
                     threshold: (2 * n_members/ 3) as u64,
-                    members: members_pk.iter().map(|key| hex::encode(key)).collect(),
+                    members: members_pk.iter().map(|key| String::from("0x") + &hex::encode(key)).collect(),
                 });
 
                 let response = client.create_group(request).await.unwrap();
@@ -239,9 +240,9 @@ async fn main() -> Result<(), reqwest::Error> {
                     println!("Proposal submitted with ID: {}", prop_id);
                     let prop = Proposal::<Groth16<Bls12_381>>::new(parameters.clone());
                     let proposal_id = prop.new_proposal_id(prop_id as u16);
-                    while !members.is_empty() {
-                        let idx = rng.gen_range(0..members.len());
-                        let voter = members.remove(idx);
+                    while !indices.is_empty() {
+                        let idx = indices.pop().unwrap();
+                        let voter = &members[idx];
                         let nullifier = voter.nullifier(proposal_id);
                         
                         let vote_data = if rng.gen_bool(0.5) { 1 } else { 0 } ;
