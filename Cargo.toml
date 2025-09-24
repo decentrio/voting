@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+tonic = "0.12"
+prost = "0.13"
 anyhow = { version = "1.0.99" }
 clap = { version = "4.5.32", features = ["derive"] }
 hex = { version = "0.4" }
@@ -26,3 +28,6 @@ tracing = { version = "0.1", default-features = false, features = [ "attributes"
 tracing-subscriber = { version = "0.2" }
 ark-snark = { version = "^0.3.0", default-features = false }
 ark-groth16 = { version = "^0.3.0" }
+
+[build-dependencies]
+tonic-build = "0.12"

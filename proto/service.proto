@@ -16,8 +16,9 @@ enum VoteOption {
 
 // Messages
 message CreateGroupRequest {
-  string adming = 1;
-  repeated string members = 2;
+  string admin = 1;
+  uint64 threshold = 2;
+  repeated string members = 3;
 }
 
 message CreateGroupResponse {

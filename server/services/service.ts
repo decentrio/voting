@@ -79,6 +79,7 @@ export class Service {
     call: grpc.ServerUnaryCall<{ admin: string, threshold: number, members: string[] }, any>,
     callback: grpc.sendUnaryData<{ group_id: number }>
   ) {
+    console.log("go here: ", call.request);
     const currentGroupId = this.memDb.groups?.size || 0;
     const group: Group = new Group(call.request.admin, call.request.members, call.request.threshold);
     this.memDb.groups.set(currentGroupId, group)

@@ -28,6 +28,7 @@ pub type VotingKeyVar = <LeafHashGadget as CRHGadget<LeafHash, ConstraintF>>::Ou
 pub type Nullifier = <LeafHash as CRH>::Output;
 pub type NullifierVar = <LeafHashGadget as CRHGadget<LeafHash, ConstraintF>>::OutputVar;
 
+#[derive(Clone)]
 pub struct Voter {
     leaf_crh_params: <LeafHash as CRH>::Parameters,
     pub sk: SecretKey,

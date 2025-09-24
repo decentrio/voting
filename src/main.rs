@@ -12,10 +12,15 @@ use ark_groth16::Groth16;
 use ark_relations::r1cs::ConstraintLayer;
 use ark_std::rand::{rngs::StdRng, SeedableRng};
 use clap::Parser;
+use rand::Rng;
 use reqwest;
 use tracing_subscriber::{layer::SubscriberExt, Registry};
 
-
+pub mod gov {
+    tonic::include_proto!("gov");
+}
+use gov::governance_client::GovernanceClient;
+use gov::{CreateGroupRequest, ProposalRequest};
 #[derive(Parser)]
 #[command(author, version, about)]
 #[command(name = "voting")]
@@ -134,6 +139,41 @@ async fn main() -> Result<(), reqwest::Error> {
                     writer = File::create("./data/proof.json").unwrap();
                     let proof_json = utils::proof_to_snarkjs(&proof);
                     serde_json::to_writer_pretty(writer, &proof_json).unwrap();
+                }
+            }
+        },
+        Commands::Spam => {
+            let mut client = GovernanceClient::connect("http://0.0.0.0:50051").await.unwrap();
+            
+            while true {
+                let admin = prop.new_voter(&mut rng);
+                let admin_pk = hex::encode(StoredKeypair::from(admin.voting_key.into_repr()).0);
+
+                let n_members: usize = rng.gen_range(5..100);
+                let n_proposals: usize = rng.gen_range(1..10);
+                println!("n_members: {}", n_members);
+                println!("n_proposal: {}", n_proposal);
+                let mut members = vec![];
+                let mut members_pk = vec![];
+                for _ in 0..n_members {
+                    let member = prop.new_voter(&mut rng);
+                    members.push(member.clone());
+                    members_pk.push(StoredKeypair::from(member.voting_key.into_repr()).0);
+                }
+                
+                let request = tonic::Request::new(CreateGroupRequest {
+                    admin: admin_pk,
+                    threshold: (2 * n_members/ 3) as u64,
+                    members: members_pk.iter().map(|key| hex::encode(key)).collect(),
+                });
+
+                let response = client.create_group(request).await.unwrap();
+                println!("Group created with ID: {:?}", response.into_inner().group_id);
+
+                let group_id = response.into_inner().group_id;
+
+                for _ in 0..n_proposals {
+                    // TODO: create proposal and vote
                 }
             }
         }
