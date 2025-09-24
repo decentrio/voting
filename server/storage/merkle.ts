@@ -114,9 +114,9 @@ export class SparseMerkleTree {
         });
 
         const emptyHash = toBase64(this.EMPTY);
-        const emptyLeaves = new Array(this.capacity - this.nextFree + 1).fill(emptyHash);
+        const emptyLeaves = new Array(this.capacity - this.nextFree).fill(emptyHash);
         leaves = [...leaves, ...emptyLeaves];
-
+        console.log(leaves.length)
         return leaves;
     }
 
