@@ -36,7 +36,7 @@ export class SparseMerkleTree {
     private nextFree = 0;
 
     constructor(opts?: { depth?: number; hash?: HashFn }) {
-        this.depth = opts?.depth ?? 16;       // default small; set what you need
+        this.depth = opts?.depth ?? 8;       // default small; set what you need
         if (this.depth < 0) throw new Error("depth must be >= 0");
         // Practical bound: array size is 2^depth; guard to avoid accidental huge allocs
         if (this.depth > 22) {

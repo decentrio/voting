@@ -2,7 +2,7 @@ pub mod circuit;
 pub mod cmd;
 pub mod utils;
 
-use std::{fs::File, path::PathBuf};
+use std::{env, fs::File, path::PathBuf, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use crate::{circuit::{proposal::Parameters, voter::Voter, Proposal}, cmd::{key::{KeyCommands, KeyConfig, StoredKeypair}, vote::VoteCommands, Commands}};
 
@@ -20,7 +20,17 @@ pub mod gov {
     tonic::include_proto!("gov");
 }
 use gov::governance_client::GovernanceClient;
-use gov::{CreateGroupRequest, ProposalRequest};
+use gov::{CreateGroupRequest, ProposalRequest, VoteRequest, VoteOption};
+
+use serde::Deserialize;
+use dotenvy::dotenv;
+use async_openai::{config::OpenAIConfig, types::{ChatCompletionRequestMessage, ChatCompletionRequestUserMessage, ChatCompletionRequestUserMessageContent, CreateChatCompletionRequestArgs}, Client};
+#[derive(Debug, Deserialize)]
+struct GPTProposal {
+    title: String,
+    description: String,
+}
+
 #[derive(Parser)]
 #[command(author, version, about)]
 #[command(name = "voting")]
@@ -89,10 +99,9 @@ async fn main() -> Result<(), reqwest::Error> {
         Commands::Vote { command } => {
             match command {
                 VoteCommands::Vote { proposal_id, voter_index, vote_data } => {
-                    // let url = cli.rpc_url.unwrap();
-                    // let response = reqwest::get(url).await?.text().await?;
-                    let data = String::from("3bcc746344f900c1d08bb57f707010709a1ae626ec7d11391e66a338de51bf62,55af9fb47e387e6247d8d644f9fe4f84d6c61ead034eed1021c8dd370ad2a9af,12f0010135255cb45aebc559c3d9a486d8163fcec5d5b741b119ace4bac3a6ae,c5751f51351f4a3281e54f1235de8f55ff0193a64cf91ceab5288b337ada5840,32f3205594b1bd3e53514843378a5eb6934de4052ac09ab327255be5d5fdb319,aa6b2455a1626b6368044cc035c6ea2e39ce4701bc72cc4fbe2c548bac0652da,e66a52f5c542bfdab783483a556f657df2f2dacafeca87a763eb42a15fe14ceb,38448a379a9f8ed58e48e9799e03045433120b816a50b93409dd3368dcf1cb2c,1bd2e13b237f2381682a2f43a3e2551b194a639e42ffff1c1462c6a53605be4c");
-                    let data =data.split(",");
+                    let url = cli.rpc_url.unwrap();
+                    let response = reqwest::get(url).await?.text().await?;
+                    let data = response.split(",");
 
                     let voters: Vec<Vec<u8>>  = data.map(|voter| {
                         let bytes = hex::decode(voter).unwrap();
@@ -144,23 +153,48 @@ async fn main() -> Result<(), reqwest::Error> {
         },
         Commands::Spam => {
             let mut client = GovernanceClient::connect("http://0.0.0.0:50051").await.unwrap();
+            dotenv().ok();
+
+            let api_key = env::var("OPENAI_API_KEY")
+                .expect("OPENAI_API_KEY must be set in .env file");
             
-            while true {
+            let config = OpenAIConfig::new().with_api_key(api_key);
+            let gpt_client = Client::with_config(config);
+            let prompt = r#"
+                I want to generate a proposal in a range of 100-500 words for voting with 2 random options.
+                The result data must only contain the following data in json like the example below, no further explanation,
+                with description containing the 2 options:
+                {"title":"....", "description":"...."}
+            "#;
+
+            
+            // while true {
+                let prop = Proposal::<Groth16<Bls12_381>>::new(parameters.clone());
                 let admin = prop.new_voter(&mut rng);
                 let admin_pk = hex::encode(StoredKeypair::from(admin.voting_key.into_repr()).0);
 
                 let n_members: usize = rng.gen_range(5..100);
                 let n_proposals: usize = rng.gen_range(1..10);
                 println!("n_members: {}", n_members);
-                println!("n_proposal: {}", n_proposal);
+                println!("n_proposal: {}", n_proposals);
                 let mut members = vec![];
                 let mut members_pk = vec![];
-                for _ in 0..n_members {
+                let mut tree = prop.new_tree(8).unwrap();
+                let mut proofs = vec![];
+                for i in 0..n_members {
                     let member = prop.new_voter(&mut rng);
                     members.push(member.clone());
-                    members_pk.push(StoredKeypair::from(member.voting_key.into_repr()).0);
+                    let pk = StoredKeypair::from(member.voting_key.into_repr()).0;
+                    members_pk.push(pk.clone());
+                    tree.update(i, &pk).unwrap();
+                    
                 }
-                
+
+                for i in 0..n_members {
+                    proofs.push(tree.generate_proof(i).unwrap());
+                }
+                let root = tree.root();
+                println!("requesting create group");
                 let request = tonic::Request::new(CreateGroupRequest {
                     admin: admin_pk,
                     threshold: (2 * n_members/ 3) as u64,
@@ -168,14 +202,90 @@ async fn main() -> Result<(), reqwest::Error> {
                 });
 
                 let response = client.create_group(request).await.unwrap();
-                println!("Group created with ID: {:?}", response.into_inner().group_id);
+                let group_id: u64 = response.into_inner().group_id;
+                println!("Group created with ID: {:?}", group_id);
 
-                let group_id = response.into_inner().group_id;
 
                 for _ in 0..n_proposals {
-                    // TODO: create proposal and vote
+                    let gpt_request = CreateChatCompletionRequestArgs::default()
+                        .model("gpt-4o-mini")
+                        .messages([ChatCompletionRequestMessage::User(
+                            ChatCompletionRequestUserMessage{
+                                content: ChatCompletionRequestUserMessageContent::Text(String::from(prompt)),
+                                name: None
+                            }
+                        )])
+                        .build().unwrap();
+                    let response = gpt_client.chat().create(gpt_request).await.unwrap();
+                    let reply = response
+                        .choices
+                        .get(0)
+                        .and_then(|c| c.message.content.as_ref())
+                        .unwrap();
+                    println!("gpt reply: {}", reply.clone());
+                    let proposal: GPTProposal = serde_json::from_str(reply).unwrap();
+
+                    let end_time = SystemTime::now().checked_add(Duration::from_secs(3600)).unwrap().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+                    println!("requesting create proposal");
+                    let request = tonic::Request::new(ProposalRequest{
+                        group_id, 
+                        title: proposal.title,
+                        description: proposal.description,
+                        end_time
+                    });
+
+                    let response = client.submit_proposal(request).await.unwrap();
+                    let prop_id: u64 = response.into_inner().proposal_id;
+                    println!("Proposal submitted with ID: {}", prop_id);
+                    let prop = Proposal::<Groth16<Bls12_381>>::new(parameters.clone());
+                    let proposal_id = prop.new_proposal_id(prop_id as u16);
+                    while !members.is_empty() {
+                        let idx = rng.gen_range(0..members.len());
+                        let voter = members.remove(idx);
+                        let nullifier = voter.nullifier(proposal_id);
+                        
+                        let vote_data = if rng.gen_bool(0.5) { 1 } else { 0 } ;
+                        let vote = prop.new_vote(vote_data);
+
+                        let prop = Proposal::<Groth16<Bls12_381>>::new(parameters.clone());
+                        let circuit = prop.new_circuit_instance(root, proposal_id, nullifier, vote, voter.sk, proofs[idx].clone());
+                        let (pk, vk) =
+                                Proposal::<Groth16<Bls12_381>>::circuit_setup(&mut rng, circuit.clone()).unwrap();
+                        
+                        let vk = vk;
+                        
+                        let public_inputs = circuit.clone().public_inputs();
+                        let public_inputs_json = utils::public_inputs_to_snarkjs(&public_inputs);
+                        let mut writer = File::create("./data/public_inputs.json").unwrap();
+                        serde_json::to_writer_pretty(writer, &public_inputs_json).unwrap();
+                        
+                        let vk_json = utils::vk_to_snarkjs(&vk, public_inputs.len()).unwrap();
+                        writer = File::create("./data/vkey.json").unwrap();
+                        serde_json::to_writer_pretty(writer, &vk_json).unwrap();
+
+                        let proof = Proposal::<Groth16<Bls12_381>>::prove(&mut rng, pk, circuit).unwrap();
+
+                        writer = File::create("./data/proof.json").unwrap();
+                        let proof_json = utils::proof_to_snarkjs(&proof);
+                        serde_json::to_writer_pretty(writer, &proof_json).unwrap();
+                        
+                        let vote_option = if vote_data == 1 {
+                            VoteOption::Yes
+                        } else {
+                            VoteOption::No
+                        };
+                        println!("requesting submit vote");
+
+                        let response = client.submit_vote(tonic::Request::new(VoteRequest {
+                            group_id,
+                            proposal_id: prop_id as u64,
+                            option: vote_option as i32,
+                            nullifier: StoredKeypair::from(nullifier.into_repr()).0,
+                        })).await.unwrap();
+                        println!("Vote response {:?}", response);
+                    }
                 }
-            }
+            // }
         }
     }
     Ok(())

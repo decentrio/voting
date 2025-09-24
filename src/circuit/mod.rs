@@ -9,6 +9,7 @@ use ark_std::rand::{CryptoRng, RngCore};
 
 use ark_std::marker::PhantomData;
 
+#[derive(Clone)]
 pub struct Proposal<S> {
     _snark: PhantomData<S>, // WIP
     parameters: proposal::Parameters,
