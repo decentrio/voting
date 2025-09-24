@@ -248,6 +248,8 @@ async fn main() -> Result<(), reqwest::Error> {
                         let vote_data = if rng.gen_bool(0.5) { 1 } else { 0 } ;
                         let vote = prop.new_vote(vote_data);
 
+                        println!("voter {} voting {} with vote {}", idx, vote_data, vote);
+
                         let prop = Proposal::<Groth16<Bls12_381>>::new(parameters.clone());
                         let circuit = prop.new_circuit_instance(root, proposal_id, nullifier, vote, voter.sk, proofs[idx].clone());
                         let (pk, vk) =
@@ -256,6 +258,7 @@ async fn main() -> Result<(), reqwest::Error> {
                         let vk = vk;
                         
                         let public_inputs = circuit.clone().public_inputs();
+                        println!("public_inputs: {:?}", public_inputs);
                         let public_inputs_json = utils::public_inputs_to_snarkjs(&public_inputs);
                         let mut writer = File::create("./data/public_inputs.json").unwrap();
                         serde_json::to_writer_pretty(writer, &public_inputs_json).unwrap();

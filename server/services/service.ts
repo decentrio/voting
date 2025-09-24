@@ -77,7 +77,7 @@ export class Service {
     } else {
       result = VoteResult.VOTE_STATUS_FAILED
     }
-    callback(null, { proposal_id: proposalId, tally, result});
+    callback(null, { proposal_id: proposalId, tally, result });
   }
 
   createGroup(
@@ -96,7 +96,7 @@ export class Service {
   ) {
     const grouplId = call.request.group_id || 0;
     const proposalId = this.memDb?.groups?.get(grouplId)?.submitProposal(
-      call.request.title, 
+      call.request.title,
       call.request.description,
       new Date(call.request.end_time),
     ) || 0
@@ -114,27 +114,39 @@ export class Service {
       call.request.nullifier
     )
 
-    const key = JSON.parse(readFileSync("./data/vkey.json").toString());
-    const proof = JSON.parse(readFileSync("./data/proof.json").toString());
-    const publicInputs = JSON.parse(readFileSync("./data/public_inputs.json").toString());
+    const key = JSON.parse(readFileSync(`${__dirname}/../../data/vkey.json`).toString());
+    const proof = JSON.parse(readFileSync(`${__dirname}/../../data/proof.json`).toString());
+    const publicInputs = JSON.parse(readFileSync(`${__dirname}/../../data/public_inputs.json`).toString());
     const session = await zkVerifySession.start().Volta().withAccount(seedPhrase);
 
-    if (this.submitVkey === false){
+    if (this.submitVkey === false) {
       const convertedVkey = convert(key);
-      console.log("convertedVkey: ", convertedVkey)
+      // console.log("convertedVkey: ", convertedVkey)
       console.log("Registering verification key...");
       const { events: regevent } = await session.registerVerificationKey().groth16({ library: Library.snarkjs, curve: CurveType.bls12381 }).execute(convertedVkey);
-      console.log(regevent)
+      // console.log(regevent)
       regevent.on(ZkVerifyEvents.Finalized, (eventData) => {
         console.log('Registration finalized:', eventData);
-        writeFileSync("./data/vkey_hash.json", JSON.stringify({ "hash": eventData.statementHash }, null, 2));
+        writeFileSync(`${__dirname}/../../data/vkey_hash.json`, JSON.stringify({ "hash": eventData.statementHash }, null, 2));
         return eventData.statementHash
       });
 
       this.submitVkey = true;
     }
-    
-    const vkey = JSON.parse(readFileSync("./data/vkey_hash.json").toString());
+
+    let vkey;
+    let timer = 0;
+    let count = 0;
+    while (!vkey) {
+      try {
+        count += 1;
+        await sleep(timer);
+        vkey = JSON.parse(readFileSync(`${__dirname}/../../data/vkey_hash.json`).toString());
+      } catch (e) {
+        timer += 2000;
+        console.log("Waiting for vkey registration to complete...", count);
+      }
+    }
 
     let statement: string, aggregationId: number;
     session.subscribe([
@@ -142,7 +154,7 @@ export class Service {
         event: ZkVerifyEvents.NewAggregationReceipt,
         callback: async (eventData: any) => {
           console.log("New aggregation receipt:", eventData);
-          if(aggregationId == parseInt(eventData.data.aggregationId.replace(/,/g, ''))){
+          if (aggregationId == parseInt(eventData.data.aggregationId.replace(/,/g, ''))) {
             let statementpath = await session.getAggregateStatementPath(
               eventData.blockHash,
               parseInt(eventData.data.domainId),
@@ -155,31 +167,46 @@ export class Service {
               domainId: parseInt(eventData.data.domainId),
               aggregationId: parseInt(eventData.data.aggregationId.replace(/,/g, '')),
             };
-            writeFileSync("aggregation.json", JSON.stringify(statementproof));
-        }
+            writeFileSync(`${__dirname}/../../data/aggregation.json`, JSON.stringify(statementproof));
+          }
         },
         options: { domainId: 0 },
       },
     ]);
 
-    const { events } = await session.verify()
-      .groth16({ library: Library.snarkjs, curve: CurveType.bls12381 })
-      .withRegisteredVk()
-      .execute({
-        proofData: {
-          vk: vkey.hash,
-          proof: convert(proof),
-          publicSignals: convert(publicInputs)
-        }, domainId: 0
-      });
+    console.log(proof)
+    console.log(publicInputs)
 
-    events.on(ZkVerifyEvents.IncludedInBlock, (eventData) => {
-      console.log("Included in block", eventData);
-      statement = eventData.statement;
-      aggregationId = eventData.aggregationId;
-    })
+    try {
+      const { events } = await session.verify()
+        .groth16({ library: Library.snarkjs, curve: CurveType.bls12381, })
+        .withRegisteredVk()
+        .execute({
+          proofData: {
+            vk: vkey.hash,
+            proof: convert(proof),
+            publicSignals: convert(publicInputs)
+          }, domainId: 0
+        });
 
-    callback(null, { proposal_id: proposalId });
+      events.on(ZkVerifyEvents.IncludedInBlock, (eventData) => {
+        console.log("Included in block", eventData);
+        statement = eventData.statement;
+        aggregationId = eventData.aggregationId;
+      })
+
+      callback(null, { proposal_id: proposalId });
+    } catch (e) {
+      console.log("Error during verification: ", e);
+      callback(
+        {
+          code: grpc.status.INTERNAL,
+          message: "verification failed",
+        } as grpc.ServiceError,
+        null
+      )
+    }
+
   }
 }
 
@@ -207,4 +234,8 @@ function convert(obj: any): any {
     return res;
   }
   return obj;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
