@@ -1,4 +1,4 @@
-import { Bytes, fromHex, SparseMerkleTree } from "../storage/merkle";
+import { Bytes, fromBase64, SparseMerkleTree } from "../storage/merkle";
 
 export enum VoteResult {
     VOTE_STATUS_PASSED = 0,
@@ -37,7 +37,7 @@ export class Group {
         this.proposals = new Map<number, Proposal>
         this.members = new SparseMerkleTree();
         members.forEach((v, _) => {
-            this.members.insertLeaf(fromHex(v))
+            this.members.insertLeaf(fromBase64(v))
         })
         this.admin = admin
         this.threshold = threshold || Math.ceil(members.length * 2 / 3) // default 2/3 members
@@ -47,7 +47,7 @@ export class Group {
         if (this.members?.getNextFree() >= this.members?.capacity) {
             throw new Error("reach cap members size")
         }
-        const addrBytes = fromHex(addr);
+        const addrBytes = fromBase64(addr);
         const { found } = this.members?.hasLeaf(addrBytes)
         if (found) {
             throw new Error("member already registered")
@@ -57,7 +57,7 @@ export class Group {
     }
 
     removeMember(addr: string) {
-        const addrBytes = fromHex(addr);
+        const addrBytes = fromBase64(addr);
         const { found, index } = this.members?.hasLeaf(addrBytes)
         if (!found) {
             throw new Error("member not registered yet")

@@ -1,6 +1,6 @@
 import * as grpc from "@grpc/grpc-js";
 import { MemDb } from "../storage/memdb";
-import { toHex } from "../storage/merkle";
+import { toBase64, isBase64 } from "../storage/merkle";
 import { Group, VoteOption, VoteResult } from "../interface/gov";
 
 export class Service {
@@ -12,18 +12,26 @@ export class Service {
 
   // Implement the service
   commitments(
-    call: grpc.ServerUnaryCall<{ proposal_id: number, group_id: number }, any>,
+    call: grpc.ServerUnaryCall<{ group_id: string | number }, any>,
     callback: grpc.sendUnaryData<{ commitments: string[] }>
   ) {
-    const grouplId = call.request.group_id || 0;
-    const members = this.memDb?.groups?.get(grouplId)?.members
-    let commitments: string[] = [];
-
-    members?.getLeaves().forEach((v, _) => {
-      commitments.push(toHex(v))
-    })
-
-    callback(null, { commitments: commitments });
+    try {
+      const grouplIdRaw = call.request.group_id || 0;
+      const grouplId = typeof grouplIdRaw === "string" ? Number(grouplIdRaw) : Number(grouplIdRaw);
+      if (!Number.isFinite(grouplId) || grouplId < 0) {
+        throw new Error("group id must be a positive integer");
+      }
+      
+      const group = this.memDb?.groups?.get(grouplId) 
+      if (!group) {
+        throw new Error("group not found")
+      }
+      let commitments: string[] = group.members.getLeaves();
+      
+      callback(null, { commitments });
+    } catch (e) {
+      callback({ code: grpc.status.INVALID_ARGUMENT, message: (e as Error).message } as grpc.ServiceError, null);
+    }
   }
 
   VoteResult(
@@ -72,17 +80,54 @@ export class Service {
     } else {
       result = VoteResult.VOTE_STATUS_FAILED
     }
-    callback(null, { proposal_id: proposalId, tally, result});
+    callback(null, { proposal_id: proposalId, tally, result });
   }
 
   createGroup(
-    call: grpc.ServerUnaryCall<{ admin: string, threshold: number, members: string[] }, any>,
+    call: grpc.ServerUnaryCall<{ admin?: string, threshold?: string | number, members?: string[] }, { group_id: number }>,
     callback: grpc.sendUnaryData<{ group_id: number }>
   ) {
-    const currentGroupId = this.memDb.groups?.size || 0;
-    const group: Group = new Group(call.request.admin, call.request.members, call.request.threshold);
-    this.memDb.groups.set(currentGroupId, group)
-    callback(null, { group_id: currentGroupId });
+    try {
+      const adminB64 = (call.request.admin ?? "").trim();
+      const thresholdRaw = call.request.threshold ?? 0;
+      const membersB64 = call.request.members ?? [];
+
+      // validate presence
+      if (!adminB64) {
+        throw new Error("admin is required (base64 string)");
+      }
+      if (!Array.isArray(membersB64) || membersB64.length === 0) {
+        throw new Error("members must be a non-empty array");
+      }
+
+      // validate base64 strings
+      if (!isBase64(adminB64)) {
+        throw new Error("admin is not valid base64");
+      }
+      for (let i = 0; i < membersB64.length; i++) {
+        if (!isBase64(membersB64[i])) {
+          throw new Error(`members[${i}] is not valid base64`);
+        }
+      }
+
+      // threshold handling (uint64 may arrive as string from proto-loader)
+      const threshold = typeof thresholdRaw === "string" ? Number(thresholdRaw) : Number(thresholdRaw);
+      if (!Number.isFinite(threshold) || threshold <= 0) {
+        throw new Error("threshold must be a positive integer");
+      }
+      if (threshold > membersB64.length) {
+        throw new Error("threshold cannot exceed members length");
+      }
+
+      const currentGroupId = this.memDb.groups?.size || 0;
+      const group: Group = new Group(adminB64, membersB64, threshold);
+
+      this.memDb.groups.set(currentGroupId, group)
+      callback(null, { group_id: currentGroupId });
+    }
+    catch (e) {
+      callback({ code: grpc.status.INVALID_ARGUMENT, message: (e as Error).message } as grpc.ServiceError, null);
+    }
   }
 
   submitProposal(
@@ -91,7 +136,7 @@ export class Service {
   ) {
     const grouplId = call.request.group_id || 0;
     const proposalId = this.memDb?.groups?.get(grouplId)?.submitProposal(
-      call.request.title, 
+      call.request.title,
       call.request.description,
       new Date(call.request.end_time),
     ) || 0

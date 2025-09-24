@@ -31,8 +31,7 @@ enum VoteResult {
 }
 
 message CommitmentsRequest {
-    uint64 proposal_id = 1;
-    uint64 group_id = 2;
+    uint64 group_id = 1;
 }
 
 message CommitmentsResponse {

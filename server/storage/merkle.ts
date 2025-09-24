@@ -12,12 +12,30 @@ const concat = (a: Bytes, b: Bytes): Bytes => {
     o.set(a, 0); o.set(b, a.length);
     return o;
 };
-export const toHex = (b: Bytes) => "0x" + Array.from(b).map(x => x.toString(16).padStart(2, "0")).join("");
-export const fromHex = (h: string) => {
-    const s = h.startsWith("0x") ? h.slice(2) : h;
-    const out = new Uint8Array(s.length / 2);
-    for (let i = 0; i < out.length; i++) out[i] = parseInt(s.slice(2 * i, 2 * i + 2), 16);
-    return out;
+export function toBase64(bytes: Uint8Array): string {
+    try {
+        return Buffer.from(bytes).toString("base64");
+    }
+    catch {
+        throw new Error("invalid base64");
+    }
+}
+
+export const fromBase64 = (s: string): Uint8Array => {
+    try {
+        return new Uint8Array(Buffer.from(s, "base64"));
+    } catch (e) {
+        throw new Error("invalid base64");
+    }
+};
+
+export const isBase64 = (s: string) => {
+    // Quick check: non-empty and decodes/encodes back to the same canonical string
+    if (!s || typeof s !== "string") return false;
+    try {
+        const b = Buffer.from(s, "base64");
+        return b.length > 0 && Buffer.from(b).toString("base64") === s.replace(/\s+/g, "");
+    } catch { return false; }
 };
 
 const hashNode = (H: HashFn, L: Bytes, R: Bytes) => H(concat(new Uint8Array([0x01]), concat(L, R)));
@@ -30,7 +48,7 @@ export class SparseMerkleTree {
 
     readonly EMPTY: Bytes;
 
-    /** Leaf storage: an array of *leaf hashes*; undefined means "empty/default" */
+    /** Leaf storage: an array of *leaf hashes **/
     private leaves: Bytes[];
     /** Append pointer: first index we’ll try for the next insert */
     private nextFree = 0;
@@ -39,10 +57,6 @@ export class SparseMerkleTree {
         this.depth = opts?.depth ?? 16;       // default small; set what you need
         if (this.depth < 0) throw new Error("depth must be >= 0");
         // Practical bound: array size is 2^depth; guard to avoid accidental huge allocs
-        if (this.depth > 22) {
-            // 2^22 = ~4.19M leaves; adjust if you really want larger
-            throw new Error("depth too large for an array-backed bottom tree (max 22 by default)");
-        }
 
         this.H = opts?.hash ?? sha256;
         this.capacity = 1 << this.depth;
@@ -50,7 +64,7 @@ export class SparseMerkleTree {
         this.defaults = this.precomputeDefaults();
         this.EMPTY = this.defaults[0];
 
-        this.leaves = new Array(this.capacity); // all undefined by default (treated as empty)
+        this.leaves = new Array(this.capacity).fill(this.EMPTY); // all undefined by default (treated as empty)
     }
 
     /* ---------- Public API ---------- */
@@ -61,16 +75,10 @@ export class SparseMerkleTree {
 
     /** Append a leaf at the next empty slot. Returns the index used. */
     insertLeaf(value: Bytes): number {
-        if (toHex(value) === toHex(this.EMPTY)) {
-            throw new Error("insertLeaf: cannot insert EMPTY as a leaf");
-        }
-        let i = this.nextFree;
-        while (i < this.capacity && toHex(this.leaves[i]) !== toHex(this.EMPTY)) i++;
-        if (i >= this.capacity) throw new Error("insertLeaf: tree is full");
-
-        this.leaves[i] = value;
-        this.nextFree = i + 1;
-        return i;
+        let insertedIndx = this.nextFree;
+        this.leaves[this.nextFree] = value;
+        this.nextFree = this.nextFree + 1;
+        return insertedIndx;
     }
 
     /** Set a leaf at specific index (expects already a hash). */
@@ -98,9 +106,18 @@ export class SparseMerkleTree {
     }
 
     /** Return all leaf hashes (default/empty included as undefined). */
-    getLeaves(): Bytes[] {
-        // shallow copy so callers can't mutate internal state directly
-        return [...this.leaves];
+    getLeaves(): string[] {
+        let leaves: string[] = [];
+
+        this.leaves.slice(0, this.nextFree).forEach((v, _) => {
+            leaves.push(toBase64(v))
+        });
+
+        const emptyHash = toBase64(this.EMPTY);
+        const emptyLeaves = new Array(this.capacity - this.nextFree + 1).fill(emptyHash);
+        leaves = [...leaves, ...emptyLeaves];
+
+        return leaves;
     }
 
     /**
@@ -155,7 +172,7 @@ export class SparseMerkleTree {
             acc = hashNode(this.H, left, right);
             idx >>= 1;
         }
-        return toHex(acc) === toHex(root);
+        return toBase64(acc) === toBase64(root);
     }
 
     /** Returns true if any leaf equals `hash` (and isn’t EMPTY). */
