@@ -17,5 +17,6 @@ pub(crate) enum Commands {
     Vote {
         #[command(subcommand)]
         command: VoteCommands,
-    }
+    },
+    Spam
 }

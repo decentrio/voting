@@ -54,7 +54,7 @@ export class SparseMerkleTree {
     private nextFree = 0;
 
     constructor(opts?: { depth?: number; hash?: HashFn }) {
-        this.depth = opts?.depth ?? 16;       // default small; set what you need
+        this.depth = opts?.depth ?? 8;       // default small; set what you need
         if (this.depth < 0) throw new Error("depth must be >= 0");
         // Practical bound: array size is 2^depth; guard to avoid accidental huge allocs
 
@@ -76,8 +76,12 @@ export class SparseMerkleTree {
     /** Append a leaf at the next empty slot. Returns the index used. */
     insertLeaf(value: Bytes): number {
         let insertedIndx = this.nextFree;
+        let i = this.nextFree;
         this.leaves[this.nextFree] = value;
         this.nextFree = this.nextFree + 1;
+
+        while (i < this.capacity && this.leaves[i] !== this.EMPTY) i++;
+        if (i >= this.capacity) throw new Error("insertLeaf: tree is full");
         return insertedIndx;
     }
 
