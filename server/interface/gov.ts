@@ -92,6 +92,9 @@ export class Group {
         if (proposal.nullifiers.has(nullifier)) {
             throw new Error("member already voted")
         }
+        if (proposal.endTime.getTime() >= Date.now()) {
+            throw new Error("proposal voting period has already ended")
+        }
         proposal.nullifiers.set(nullifier, true)
         option == VoteOption.YES ? proposal.tally.yes += 1 : proposal.tally.no += 1
 

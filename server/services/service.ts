@@ -17,70 +17,71 @@ export class Service {
   ) {
     try {
       const grouplIdRaw = call.request.group_id || 0;
-      const grouplId = typeof grouplIdRaw === "string" ? Number(grouplIdRaw) : Number(grouplIdRaw);
+      const grouplId = typeof grouplIdRaw === "string" ? Number(grouplIdRaw) : grouplIdRaw;
       if (!Number.isFinite(grouplId) || grouplId < 0) {
         throw new Error("group id must be a positive integer");
       }
-      
-      const group = this.memDb?.groups?.get(grouplId) 
+
+      const group = this.memDb?.groups?.get(grouplId)
       if (!group) {
         throw new Error("group not found")
       }
       let commitments: string[] = group.members.getLeaves();
-      
+
       callback(null, { commitments });
     } catch (e) {
-      callback({ code: grpc.status.INVALID_ARGUMENT, message: (e as Error).message } as grpc.ServiceError, null);
+      callback({ code: grpc.status.ABORTED, message: (e as Error).message } as grpc.ServiceError, null);
     }
   }
 
   VoteResult(
-    call: grpc.ServerUnaryCall<{ proposal_id: number, group_id: number }, any>,
+    call: grpc.ServerUnaryCall<{ proposal_id: string | number, group_id: string | number }, any>,
     callback: grpc.sendUnaryData<{ proposal_id: number, tally: { yes: number, no: number }, result: VoteResult }>
   ) {
-    const grouplId = call.request.group_id || 0;
-    const proposalId = call.request.proposal_id || 0;
-    const group = this.memDb?.groups?.get(grouplId);
-    if (!group) {
-      return callback(
-        {
-          code: grpc.status.NOT_FOUND,
-          message: "group not found",
-        } as grpc.ServiceError,
-        null
-      )
-    }
+    try {
+      const grouplIdRaw = call.request.group_id || 0;
+      const grouplId = typeof grouplIdRaw === "string" ? Number(grouplIdRaw) : grouplIdRaw;
+      const proposalIdRaw = call.request.proposal_id || 0;
+      const proposalId = typeof proposalIdRaw === "string" ? Number(proposalIdRaw) : proposalIdRaw;
 
-    const proposal = group.proposals?.get(proposalId);
-    if (!proposal) {
-      return callback(
-        {
-          code: grpc.status.NOT_FOUND,
-          message: "proposal not found",
-        } as grpc.ServiceError,
-        null
-      )
-    }
+      const group = this.memDb?.groups?.get(grouplId);
+      if (!group) {
+        return callback(
+          {
+            code: grpc.status.NOT_FOUND,
+            message: "group not found",
+          } as grpc.ServiceError,
+          null
+        )
+      }
 
-    const tally = proposal.tally;
-    if (!tally) {
-      return callback(
-        {
-          code: grpc.status.NOT_FOUND,
-          message: "tally not found",
-        } as grpc.ServiceError,
-        null
-      )
+      const proposal = group.proposals?.get(proposalId);
+      if (!proposal) {
+        return callback(
+          {
+            code: grpc.status.NOT_FOUND,
+            message: "proposal not found",
+          } as grpc.ServiceError,
+          null
+        )
+      }
+
+      const tally = proposal.tally;
+      if (!tally) {
+        throw new Error("tally not found")
+      }
+      let result = 0
+      if (proposal.endTime.getTime() > Date.now()) {
+        result = VoteResult.VOTE_STATUS_PENDING
+      } else if (proposal.tally.yes >= group.threshold) {
+        result = VoteResult.VOTE_STATUS_PASSED
+      } else {
+        result = VoteResult.VOTE_STATUS_FAILED
+      }
+      callback(null, { proposal_id: proposalId, tally, result });
+    } catch (e) {
+      callback({ code: grpc.status.ABORTED, message: (e as Error).message } as grpc.ServiceError, null);
     }
-    let result = 0
-    if (proposal.endTime.getTime() > Date.now()) {
-      result = VoteResult.VOTE_STATUS_PENDING
-    } else if (proposal.tally.yes >= group.threshold) {
-      result = VoteResult.VOTE_STATUS_PASSED
-    } else {
-      result = VoteResult.VOTE_STATUS_FAILED
-    }
-    callback(null, { proposal_id: proposalId, tally, result });
   }
 
   createGroup(
@@ -126,34 +127,52 @@ export class Service {
       callback(null, { group_id: currentGroupId });
     }
     catch (e) {
-      callback({ code: grpc.status.INVALID_ARGUMENT, message: (e as Error).message } as grpc.ServiceError, null);
+      callback({ code: grpc.status.ABORTED, message: (e as Error).message } as grpc.ServiceError, null);
     }
   }
 
   submitProposal(
-    call: grpc.ServerUnaryCall<{ group_id: number, title: string, description: string, end_time: number }, any>,
+    call: grpc.ServerUnaryCall<{ group_id: string | number, title: string, description: string, end_time: number }, any>,
     callback: grpc.sendUnaryData<{ proposal_id: number }>
   ) {
-    const grouplId = call.request.group_id || 0;
-    const proposalId = this.memDb?.groups?.get(grouplId)?.submitProposal(
-      call.request.title,
-      call.request.description,
-      new Date(call.request.end_time),
-    ) || 0
-    callback(null, { proposal_id: proposalId });
+    try {
+      if (!call.request.group_id) {
+        return callback({ code: grpc.status.INVALID_ARGUMENT, message: "need to provide proposal id" } as grpc.ServiceError, null);
+      }
+      const grouplId = typeof call.request.group_id === "string" ? Number(call.request.group_id) : call.request.group_id;
+      const proposalId = this.memDb?.groups?.get(grouplId)?.submitProposal(
+        call.request.title,
+        call.request.description,
+        new Date(call.request.end_time),
+      ) || 0
+      callback(null, { proposal_id: proposalId });
+    } catch (e) {
+      callback({ code: grpc.status.ABORTED, message: (e as Error).message } as grpc.ServiceError, null);
+    }
   }
 
   submitVote(
-    call: grpc.ServerUnaryCall<{ group_id: number, proposal_id: number, option: VoteOption, nullifier: Uint8Array }, any>,
+    call: grpc.ServerUnaryCall<{ group_id: string | number, proposal_id: string | number, option: VoteOption, nullifier: Uint8Array }, any>,
     callback: grpc.sendUnaryData<{}>
   ) {
-    const grouplId = call.request.group_id || 0;
-    const proposalId = this.memDb?.groups?.get(grouplId)?.submitVote(
-      call.request.proposal_id,
-      call.request.option,
-      call.request.nullifier
-    )
+    try {
+      if (!call.request.group_id) {
+        return callback({ code: grpc.status.INVALID_ARGUMENT, message: "need to provide proposal id" } as grpc.ServiceError, null);
+      }
+      const grouplId = typeof call.request.group_id === "string" ? Number(call.request.group_id) : call.request.group_id;
+      if (!call.request.proposal_id) {
+        return callback({ code: grpc.status.INVALID_ARGUMENT, message: "need to provide proposal id" } as grpc.ServiceError, null);
+      }
+      const proposalId = typeof call.request.proposal_id === "string" ? Number(call.request.proposal_id) : call.request.proposal_id;
+      this.memDb?.groups?.get(grouplId)?.submitVote(
+        proposalId,
+        call.request.option,
+        call.request.nullifier
+      )
 
-    callback(null, { proposal_id: proposalId });
+      callback(null, {});
+    } catch (e) {
+      callback({ code: grpc.status.ABORTED, message: (e as Error).message } as grpc.ServiceError, null);
+    }
   }
 }
