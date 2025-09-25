@@ -2,6 +2,7 @@ import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import path from "path";
 import { Service } from "./services/service";
+import { VoteResult } from "./interface/gov";
 
 const SERVICE_PROTO_PATH = path.join(__dirname, "../proto/service.proto");
 const QUERY_PROTO_PATH = path.join(__dirname, "../proto/query.proto");
@@ -36,7 +37,8 @@ function main() {
     CreateGroup: serviceHandler.createGroup.bind(serviceHandler),
   });
   server.addService(queryProto.Query.service, {
-    Commitments: serviceHandler.commitments.bind(serviceHandler)
+    Commitments: serviceHandler.commitments.bind(serviceHandler),
+    VoteResult: serviceHandler.VoteResult.bind(serviceHandler)
   });
 
   const addr = "0.0.0.0:50051";
