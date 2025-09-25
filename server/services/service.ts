@@ -177,89 +177,102 @@ export class Service {
     const key = JSON.parse(readFileSync(`${__dirname}/../../data/vkey.json`).toString());
     const proof = JSON.parse(readFileSync(`${__dirname}/../../data/proof.json`).toString());
     const publicInputs = JSON.parse(readFileSync(`${__dirname}/../../data/public_inputs.json`).toString());
-    const session = await zkVerifySession.start().Volta().withAccount(seedPhrase);
-
-    if (this.submitVkey === false) {
-      const convertedVkey = convert(key);
-      // console.log("convertedVkey: ", convertedVkey)
-      const { events: regevent } = await session.registerVerificationKey().groth16({ library: Library.snarkjs, curve: CurveType.bls12381 }).execute(convertedVkey);
-      // console.log(regevent)
-      regevent.on(ZkVerifyEvents.Finalized, (eventData: { statementHash: any; }) => {
-        writeFileSync(`${__dirname}/../../data/vkey_hash.json`, JSON.stringify({ "hash": eventData.statementHash }, null, 2));
-        return eventData.statementHash
-      });
-
-      this.submitVkey = true;
-    }
-
-    let vkey;
-    let timer = 0;
-    let count = 0;
-    while (!vkey) {
-      try {
-        count += 1;
-        await sleep(timer);
-        vkey = JSON.parse(readFileSync(`${__dirname}/../../data/vkey_hash.json`).toString());
-      } catch (e) {
-        timer += 2000;
-        console.log("Waiting for vkey registration to complete...", count);
-      }
-    }
-    let statement: string, aggregationId: number;
-    session.subscribe([
-      {
-        event: ZkVerifyEvents.NewAggregationReceipt,
-        callback: async (eventData: any) => {
-          if (aggregationId == parseInt(eventData.data.aggregationId.replace(/,/g, ''))) {
-            let statementpath = await retryUntilOk(async () => {
-              return session.getAggregateStatementPath(
-                eventData.blockHash,
-                parseInt(eventData.data.domainId),
-                parseInt(eventData.data.aggregationId.replace(/,/g, '')),
-                statement
-              );
-            });
-            const statementproof = {
-              ...statementpath,
-              domainId: parseInt(eventData.data.domainId),
-              aggregationId: parseInt(eventData.data.aggregationId.replace(/,/g, '')),
-            };
-            writeFileSync(`${__dirname}/../../data/aggregation.json`, JSON.stringify(statementproof));
-          }
-        },
-        options: { domainId: 0 },
-      },
-    ]);
-
-    const { events, transactionResult } = await session.verify()
-      .groth16({ library: Library.snarkjs, curve: CurveType.bls12381, })
-      .withRegisteredVk()
-      .execute({
-        proofData: {
-          vk: vkey.hash,
-          proof: convert(proof),
-          publicSignals: convert(publicInputs)
-        }, domainId: 0
-      });
-
-    events.on(ZkVerifyEvents.IncludedInBlock, (eventData: { statement: string; aggregationId: number; }) => {
-      console.log("Included in block", eventData);
-      statement = eventData.statement;
-      aggregationId = eventData.aggregationId;
-    })
-
-    // Handle errors during the transaction process
-    events.on('error', (error) => {
-      console.error('An error occurred during the transaction:', error);
-      throw error
-    });
-
     try {
-      await transactionResult;
+      const session = await zkVerifySession.start().Volta().withAccount(seedPhrase);
+      if (this.submitVkey === false) {
+        const convertedVkey = convert(key);
+        // console.log("convertedVkey: ", convertedVkey)
+        const { events: regevent } = await session.registerVerificationKey().groth16({ library: Library.snarkjs, curve: CurveType.bls12381 }).execute(convertedVkey);
+        // console.log(regevent)
+        regevent.on(ZkVerifyEvents.Finalized, (eventData: { statementHash: any; }) => {
+          writeFileSync(`${__dirname}/../../data/vkey_hash.json`, JSON.stringify({ "hash": eventData.statementHash }, null, 2));
+          return eventData.statementHash
+        });
 
-      callback(null, { proposal_id: proposalId });
+        this.submitVkey = true;
+      }
+
+      let vkey;
+      let timer = 0;
+      let count = 0;
+      while (!vkey) {
+        try {
+          count += 1;
+          await sleep(timer);
+          vkey = JSON.parse(readFileSync(`${__dirname}/../../data/vkey_hash.json`).toString());
+        } catch (e) {
+          timer += 2000;
+          console.log("Waiting for vkey registration to complete...", count);
+        }
+      }
+      let statement: string, aggregationId: number;
+      session.subscribe([
+        {
+          event: ZkVerifyEvents.NewAggregationReceipt,
+          callback: async (eventData: any) => {
+            if (aggregationId == parseInt(eventData.data.aggregationId.replace(/,/g, ''))) {
+              let statementpath = await retryUntilOk(async () => {
+                return session.getAggregateStatementPath(
+                  eventData.blockHash,
+                  parseInt(eventData.data.domainId),
+                  parseInt(eventData.data.aggregationId.replace(/,/g, '')),
+                  statement
+                );
+              });
+              const statementproof = {
+                ...statementpath,
+                domainId: parseInt(eventData.data.domainId),
+                aggregationId: parseInt(eventData.data.aggregationId.replace(/,/g, '')),
+              };
+              writeFileSync(`${__dirname}/../../data/aggregation.json`, JSON.stringify(statementproof));
+            }
+          },
+          options: { domainId: 0 },
+        },
+      ]);
+
+      const { events, transactionResult } = await session.verify()
+        .groth16({ library: Library.snarkjs, curve: CurveType.bls12381, })
+        .withRegisteredVk()
+        .execute({
+          proofData: {
+            vk: vkey.hash,
+            proof: convert(proof),
+            publicSignals: convert(publicInputs)
+          }, domainId: 0
+        });
+
+      events.on(ZkVerifyEvents.IncludedInBlock, (eventData: { statement: string; aggregationId: number; }) => {
+        console.log("Included in block", eventData);
+        statement = eventData.statement;
+        aggregationId = eventData.aggregationId;
+      })
+
+      // Handle errors during the transaction process
+      events.on('error', (error) => {
+        console.error('An error occurred during the transaction:', error);
+        throw error
+      });
+
+      try {
+        const result: VerifyTransactionInfo = await transactionResult;
+        console.log("Verify complete", result);
+
+        callback(null, { proposal_id: proposalId });
+      } catch (e) {
+        console.log("Error during verification: ", e);
+        callback(
+          {
+            code: grpc.status.INTERNAL,
+            message: "verification failed",
+          } as grpc.ServiceError,
+          null
+        )
+      } finally {
+        // Close the session when done
+        await session.close();
+      }
     } catch (e) {
-      console.log("Error during verification: ", e);
       callback(
         {
           code: grpc.status.INTERNAL,
@@ -267,9 +280,6 @@ export class Service {
         } as grpc.ServiceError,
         null
       )
-    } finally {
-      // Close the session when done
-      await session.close();
     }
   }
 }
