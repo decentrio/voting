@@ -2,7 +2,7 @@ pub mod circuit;
 pub mod cmd;
 pub mod utils;
 
-use std::{env, fs::File, io::{Read, Write}, path::PathBuf, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::{env, fs::File, io::{Read, Write}, path::PathBuf, thread, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use crate::{circuit::{proposal::Parameters, voter::Voter, Proposal}, cmd::{key::{KeyCommands, KeyConfig, StoredKeypair}, vote::VoteCommands, Commands}};
 
@@ -299,17 +299,26 @@ async fn main() -> Result<(), reqwest::Error> {
                         };
                         println!("requesting submit vote");
 
-                        let response = client.submit_vote(tonic::Request::new(VoteRequest {
-                            group_id,
-                            proposal_id: prop_id as u64,
-                            option: vote_option as i32,
-                            nullifier: StoredKeypair::from(nullifier.into_repr()).0,
-                        })).await;
+                        loop {
+                            let response = client
+                                .submit_vote(tonic::Request::new(VoteRequest {
+                                    group_id,
+                                    proposal_id: prop_id as u64,
+                                    option: vote_option as i32,
+                                    nullifier: StoredKeypair::from(nullifier.into_repr()).0,
+                                }))
+                                .await;
 
-                        match response {
-                            Ok(val) => println!("Vote response {:?}", val),
-                            Err(e) => println!("Vote error {:?}", e),
-
+                            match response {
+                                Ok(val) => {
+                                    println!("✅ Vote response {:?}", val);
+                                    break; // success → exit the loop
+                                }
+                                Err(e) => {
+                                    println!("❌ Vote error {:?}, retrying...", e);
+                                    thread::sleep(Duration::from_secs(1)); // wait before retrying
+                                }
+                            }
                         }
                     }
                 }
