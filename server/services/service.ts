@@ -177,7 +177,10 @@ export class Service {
     const key = JSON.parse(readFileSync(`${__dirname}/../../data/vkey.json`).toString());
     const proof = JSON.parse(readFileSync(`${__dirname}/../../data/proof.json`).toString());
     const publicInputs = JSON.parse(readFileSync(`${__dirname}/../../data/public_inputs.json`).toString());
-    const session = await zkVerifySession.start().Volta().withAccount(seedPhrase);
+    const session = await zkVerifySession.start().Custom({
+      websocket: "wss://zkverify-testnet.decentrio.ventures",
+      rpc: "https://zkverify-testnet.decentrio.ventures"
+    }).withAccount(seedPhrase);
 
     if (this.submitVkey === false) {
       const convertedVkey = convert(key);
