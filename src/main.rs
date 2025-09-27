@@ -309,7 +309,6 @@ async fn main() -> Result<(), reqwest::Error> {
                         match response {
                             Ok(val) => println!("Vote response {:?}", val),
                             Err(e) => println!("Vote error {:?}", e),
-
                         }
                     }
                 }

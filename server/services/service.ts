@@ -177,7 +177,6 @@ export class Service {
     const key = JSON.parse(readFileSync(`${__dirname}/../../data/vkey.json`).toString());
     const proof = JSON.parse(readFileSync(`${__dirname}/../../data/proof.json`).toString());
     const publicInputs = JSON.parse(readFileSync(`${__dirname}/../../data/public_inputs.json`).toString());
-    try {
       const session = await zkVerifySession.start().Volta().withAccount(seedPhrase);
       if (this.submitVkey === false) {
         const convertedVkey = convert(key);
@@ -272,15 +271,6 @@ export class Service {
         // Close the session when done
         await session.close();
       }
-    } catch (e) {
-      callback(
-        {
-          code: grpc.status.INTERNAL,
-          message: "verification failed",
-        } as grpc.ServiceError,
-        null
-      )
-    }
   }
 }
 
