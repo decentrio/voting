@@ -3,8 +3,8 @@ import { MemDb } from "../storage/memdb";
 import { toBase64, isBase64 } from "../storage/merkle";
 import { Group, VoteOption, VoteResult } from "../interface/gov";
 import "dotenv/config";
+import axios from 'axios';
 import { readFileSync, writeFileSync } from "fs";
-import { zkVerifySession, Library, CurveType, ZkVerifyEvents, VerifyTransactionInfo } from "zkverifyjs";
 
 const seedPhrase: string = process.env.SEED_PHRASE!;
 export class Service {
@@ -160,33 +160,39 @@ export class Service {
     call: grpc.ServerUnaryCall<{ group_id: string | number, proposal_id: string | number, option: VoteOption, nullifier: Uint8Array }, any>,
     callback: grpc.sendUnaryData<{}>
   ) {
-    if (!call.request.group_id) {
-      return callback({ code: grpc.status.INVALID_ARGUMENT, message: "need to provide proposal id" } as grpc.ServiceError, null);
-    }
-    const grouplId = typeof call.request.group_id === "string" ? Number(call.request.group_id) : call.request.group_id;
-    if (!call.request.proposal_id) {
-      return callback({ code: grpc.status.INVALID_ARGUMENT, message: "need to provide proposal id" } as grpc.ServiceError, null);
-    }
-    const proposalId = typeof call.request.proposal_id === "string" ? Number(call.request.proposal_id) : call.request.proposal_id;
-    this.memDb?.groups?.get(grouplId)?.submitVote(
-      proposalId,
-      call.request.option,
-      call.request.nullifier
-    )
+    try {
+      if (!call.request.group_id) {
+        return callback({ code: grpc.status.INVALID_ARGUMENT, message: "need to provide proposal id" } as grpc.ServiceError, null);
+      }
+      const grouplId = typeof call.request.group_id === "string" ? Number(call.request.group_id) : call.request.group_id;
+      if (!call.request.proposal_id) {
+        return callback({ code: grpc.status.INVALID_ARGUMENT, message: "need to provide proposal id" } as grpc.ServiceError, null);
+      }
+      const proposalId = typeof call.request.proposal_id === "string" ? Number(call.request.proposal_id) : call.request.proposal_id;
+      this.memDb?.groups?.get(grouplId)?.submitVote(
+        proposalId,
+        call.request.option,
+        call.request.nullifier
+      )
 
-    const key = JSON.parse(readFileSync(`${__dirname}/../../data/vkey.json`).toString());
-    const proof = JSON.parse(readFileSync(`${__dirname}/../../data/proof.json`).toString());
-    const publicInputs = JSON.parse(readFileSync(`${__dirname}/../../data/public_inputs.json`).toString());
-      const session = await zkVerifySession.start().Volta().withAccount(seedPhrase);
+      const key = JSON.parse(readFileSync(`${__dirname}/../../data/vkey.json`).toString());
+      const proof = JSON.parse(readFileSync(`${__dirname}/../../data/proof.json`).toString());
+      const publicInputs = JSON.parse(readFileSync(`${__dirname}/../../data/public_inputs.json`).toString());
       if (this.submitVkey === false) {
         const convertedVkey = convert(key);
-        // console.log("convertedVkey: ", convertedVkey)
-        const { events: regevent } = await session.registerVerificationKey().groth16({ library: Library.snarkjs, curve: CurveType.bls12381 }).execute(convertedVkey);
-        // console.log(regevent)
-        regevent.on(ZkVerifyEvents.Finalized, (eventData: { statementHash: any; }) => {
-          writeFileSync(`${__dirname}/../../data/vkey_hash.json`, JSON.stringify({ "hash": eventData.statementHash }, null, 2));
-          return eventData.statementHash
-        });
+        const regParams = {
+          "proofType": "groth16",
+          "proofOptions": {
+            "library": "snarkjs",
+            "curve": "bn128"
+          },
+          "vk": convertedVkey
+        }
+        const regResponse = await axios.post(`${process.env.API_URL}/register-vk/${process.env.API_KEY}`, regParams);
+        writeFileSync(
+          "vkey_hash.json",
+          JSON.stringify(regResponse.data),
+        );
 
         this.submitVkey = true;
       }
@@ -205,72 +211,47 @@ export class Service {
         }
       }
       let statement: string, aggregationId: number;
-      session.subscribe([
-        {
-          event: ZkVerifyEvents.NewAggregationReceipt,
-          callback: async (eventData: any) => {
-            if (aggregationId == parseInt(eventData.data.aggregationId.replace(/,/g, ''))) {
-              let statementpath = await retryUntilOk(async () => {
-                return session.getAggregateStatementPath(
-                  eventData.blockHash,
-                  parseInt(eventData.data.domainId),
-                  parseInt(eventData.data.aggregationId.replace(/,/g, '')),
-                  statement
-                );
-              });
-              const statementproof = {
-                ...statementpath,
-                domainId: parseInt(eventData.data.domainId),
-                aggregationId: parseInt(eventData.data.aggregationId.replace(/,/g, '')),
-              };
-              writeFileSync(`${__dirname}/../../data/aggregation.json`, JSON.stringify(statementproof));
-            }
-          },
-          options: { domainId: 0 },
+
+      const params = {
+        "proofType": "groth16",
+        "vkRegistered": true,
+        "proofOptions": {
+          "library": "snarkjs",
+          "curve": "bn128"
         },
-      ]);
-
-      const { events, transactionResult } = await session.verify()
-        .groth16({ library: Library.snarkjs, curve: CurveType.bls12381, })
-        .withRegisteredVk()
-        .execute({
-          proofData: {
-            vk: vkey.hash,
-            proof: convert(proof),
-            publicSignals: convert(publicInputs)
-          }, domainId: 0
-        });
-
-      events.on(ZkVerifyEvents.IncludedInBlock, (eventData: { statement: string; aggregationId: number; }) => {
-        console.log("Included in block", eventData);
-        statement = eventData.statement;
-        aggregationId = eventData.aggregationId;
-      })
-
-      // Handle errors during the transaction process
-      events.on('error', (error) => {
-        console.error('An error occurred during the transaction:', error);
-        throw error
-      });
-
-      try {
-        const result: VerifyTransactionInfo = await transactionResult;
-        console.log("Verify complete", result);
-
-        callback(null, { proposal_id: proposalId });
-      } catch (e) {
-        console.log("Error during verification: ", e);
-        callback(
-          {
-            code: grpc.status.INTERNAL,
-            message: "verification failed",
-          } as grpc.ServiceError,
-          null
-        )
-      } finally {
-        // Close the session when done
-        await session.close();
+        "proofData": {
+          "proof": proof,
+          "publicSignals": publicInputs,
+          "vk": vkey.vkHash || vkey.meta.vkHash
+        }
       }
+
+      const requestResponse = await axios.post(`${process.env.API_URL}/submit-proof/${process.env.API_KEY}`, params)
+
+      while (true) {
+        const jobStatusResponse = await axios.get(`${process.env.API_URL}/job-status/${process.env.API_KEY}/${requestResponse.data.jobId}`);
+        if (jobStatusResponse.data.status === "Finalized") {
+          console.log("Job finalized successfully");
+          console.log(jobStatusResponse.data);
+          break;
+        } else {
+          console.log("Job status: ", jobStatusResponse.data.status);
+          console.log("Waiting for job to finalize...");
+          await new Promise(resolve => setTimeout(resolve, 5000)); // Wait for 5 seconds before checking again
+        }
+      }
+
+      callback(null, { proposal_id: proposalId });
+    } catch (e) {
+      console.log("Error during verification: ", e);
+      callback(
+        {
+          code: grpc.status.INTERNAL,
+          message: "verification failed",
+        } as grpc.ServiceError,
+        null
+      )
+    }
   }
 }
 
