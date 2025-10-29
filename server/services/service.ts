@@ -6,7 +6,6 @@ import "dotenv/config";
 import axios from 'axios';
 import { readFileSync, writeFileSync } from "fs";
 
-const seedPhrase: string = process.env.SEED_PHRASE!;
 export class Service {
   memDb: MemDb;
   submitVkey: boolean;
@@ -184,13 +183,13 @@ export class Service {
           "proofType": "groth16",
           "proofOptions": {
             "library": "snarkjs",
-            "curve": "bn128"
+            "curve": "bls12381"
           },
           "vk": convertedVkey
         }
         const regResponse = await axios.post(`${process.env.API_URL}/register-vk/${process.env.API_KEY}`, regParams);
         writeFileSync(
-          "vkey_hash.json",
+          `${__dirname}/../../data/vkey_hash.json`,
           JSON.stringify(regResponse.data),
         );
 
@@ -210,18 +209,17 @@ export class Service {
           console.log("Waiting for vkey registration to complete...", count);
         }
       }
-      let statement: string, aggregationId: number;
 
       const params = {
         "proofType": "groth16",
         "vkRegistered": true,
         "proofOptions": {
           "library": "snarkjs",
-          "curve": "bn128"
+          "curve": "bls12381"
         },
         "proofData": {
-          "proof": proof,
-          "publicSignals": publicInputs,
+          "proof": convert(proof),
+          "publicSignals": convert(publicInputs),
           "vk": vkey.vkHash || vkey.meta.vkHash
         }
       }
@@ -235,7 +233,7 @@ export class Service {
           console.log(jobStatusResponse.data);
           break;
         } else {
-          console.log("Job status: ", jobStatusResponse.data.status);
+          console.log("Job status: ", jobStatusResponse.data);
           console.log("Waiting for job to finalize...");
           await new Promise(resolve => setTimeout(resolve, 5000)); // Wait for 5 seconds before checking again
         }
@@ -247,7 +245,7 @@ export class Service {
       callback(
         {
           code: grpc.status.INTERNAL,
-          message: "verification failed",
+          message: "verification failed" + e,
         } as grpc.ServiceError,
         null
       )
